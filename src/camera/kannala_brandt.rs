@@ -39,8 +39,8 @@ use crate::camera::{validation, CameraModel, CameraModelError, Intrinsics, Resol
 ///
 /// ```rust
 /// use nalgebra::DVector;
-/// use fisheye_tools::camera::kannala_brandt::KannalaBrandtModel;
-/// use fisheye_tools::camera::{Intrinsics, Resolution, CameraModel, CameraModelError};
+/// use apex_camera_models::camera::kannala_brandt::KannalaBrandtModel;
+/// use apex_camera_models::camera::{Intrinsics, Resolution, CameraModel, CameraModelError};
 ///
 /// // Parameters: fx, fy, cx, cy, k1, k2, k3, k4
 /// let params = DVector::from_vec(vec![
@@ -105,8 +105,8 @@ impl KannalaBrandtModel {
     ///
     /// ```rust
     /// use nalgebra::DVector;
-    /// use fisheye_tools::camera::kannala_brandt::KannalaBrandtModel;
-    /// use fisheye_tools::camera::Resolution;
+    /// use apex_camera_models::camera::kannala_brandt::KannalaBrandtModel;
+    /// use apex_camera_models::camera::Resolution;
     ///
     /// let params_vec = DVector::from_vec(vec![
     ///     461.58, 460.28, 366.28, 249.08, // fx, fy, cx, cy
@@ -197,8 +197,8 @@ impl CameraModel for KannalaBrandtModel {
     ///
     /// ```rust
     /// use nalgebra::{DVector, Vector3};
-    /// use fisheye_tools::camera::kannala_brandt::KannalaBrandtModel;
-    /// use fisheye_tools::camera::{CameraModel, Resolution};
+    /// use apex_camera_models::camera::kannala_brandt::KannalaBrandtModel;
+    /// use apex_camera_models::camera::{CameraModel, Resolution};
     ///
     /// let params = DVector::from_vec(vec![460.0,460.0,320.0,240.0, -0.01,0.05,-0.08,0.04]);
     /// let mut model = KannalaBrandtModel::new(&params).unwrap();
@@ -302,8 +302,8 @@ impl CameraModel for KannalaBrandtModel {
     ///
     /// ```rust
     /// use nalgebra::{DVector, Vector2};
-    /// use fisheye_tools::camera::kannala_brandt::KannalaBrandtModel;
-    /// use fisheye_tools::camera::{CameraModel, Resolution};
+    /// use apex_camera_models::camera::kannala_brandt::KannalaBrandtModel;
+    /// use apex_camera_models::camera::{CameraModel, Resolution};
     ///
     /// let params = DVector::from_vec(vec![460.0,460.0,320.0,240.0, -0.01,0.05,-0.08,0.04]);
     /// let mut model = KannalaBrandtModel::new(&params).unwrap();

@@ -21,8 +21,8 @@ use yaml_rust::YamlLoader;
 ///
 /// ```rust
 /// use nalgebra::DVector;
-/// use fisheye_tools::camera::pinhole::PinholeModel;
-/// use fisheye_tools::camera::{Intrinsics, Resolution, CameraModelError};
+/// use apex_camera_models::camera::pinhole::PinholeModel;
+/// use apex_camera_models::camera::{Intrinsics, Resolution, CameraModelError};
 ///
 /// // Create a PinholeModel using the new constructor
 /// let params = DVector::from_vec(vec![500.0, 500.0, 320.0, 240.0]); // fx, fy, cx, cy
@@ -67,8 +67,8 @@ impl PinholeModel {
     ///
     /// ```rust
     /// use nalgebra::DVector;
-    /// use fisheye_tools::camera::pinhole::PinholeModel;
-    /// use fisheye_tools::camera::{Resolution, CameraModelError};
+    /// use apex_camera_models::camera::pinhole::PinholeModel;
+    /// use apex_camera_models::camera::{Resolution, CameraModelError};
     ///
     /// let params = DVector::from_vec(vec![500.0, 500.0, 320.0, 240.0]);
     /// let mut model = PinholeModel::new(&params).expect("Failed to create PinholeModel");
@@ -140,8 +140,8 @@ impl CameraModel for PinholeModel {
     ///
     /// ```rust
     /// use nalgebra::{DVector, Vector3};
-    /// use fisheye_tools::camera::pinhole::PinholeModel;
-    /// use fisheye_tools::camera::{CameraModel, Resolution};
+    /// use apex_camera_models::camera::pinhole::PinholeModel;
+    /// use apex_camera_models::camera::{CameraModel, Resolution};
     ///
     /// let params = DVector::from_vec(vec![500.0, 500.0, 320.0, 240.0]);
     /// let mut model = PinholeModel::new(&params).unwrap();
@@ -203,8 +203,8 @@ impl CameraModel for PinholeModel {
     ///
     /// ```rust
     /// use nalgebra::{DVector, Vector2};
-    /// use fisheye_tools::camera::pinhole::PinholeModel;
-    /// use fisheye_tools::camera::{CameraModel, Resolution};
+    /// use apex_camera_models::camera::pinhole::PinholeModel;
+    /// use apex_camera_models::camera::{CameraModel, Resolution};
     ///
     /// let params = DVector::from_vec(vec![500.0, 500.0, 320.0, 240.0]);
     /// let mut model = PinholeModel::new(&params).unwrap();

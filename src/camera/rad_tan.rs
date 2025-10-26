@@ -26,8 +26,8 @@ use yaml_rust::YamlLoader;
 ///
 /// ```rust
 /// use nalgebra::DVector;
-/// use fisheye_tools::camera::rad_tan::RadTanModel;
-/// use fisheye_tools::camera::{Intrinsics, Resolution, CameraModelError};
+/// use apex_camera_models::camera::rad_tan::RadTanModel;
+/// use apex_camera_models::camera::{Intrinsics, Resolution, CameraModelError};
 ///
 /// // Create a RadTanModel using the new constructor
 /// // Parameters: fx, fy, cx, cy, k1, k2, p1, p2, k3
@@ -89,8 +89,8 @@ impl RadTanModel {
     ///
     /// ```rust
     /// use nalgebra::DVector;
-    /// use fisheye_tools::camera::rad_tan::RadTanModel;
-    /// use fisheye_tools::camera::{Resolution, CameraModelError};
+    /// use apex_camera_models::camera::rad_tan::RadTanModel;
+    /// use apex_camera_models::camera::{Resolution, CameraModelError};
     ///
     /// let params = DVector::from_vec(vec![
     ///     460.0, 460.0, 320.0, 240.0, // fx, fy, cx, cy
@@ -174,8 +174,8 @@ impl CameraModel for RadTanModel {
     ///
     /// ```rust
     /// use nalgebra::{DVector, Vector3};
-    /// use fisheye_tools::camera::rad_tan::RadTanModel;
-    /// use fisheye_tools::camera::{CameraModel, Resolution};
+    /// use apex_camera_models::camera::rad_tan::RadTanModel;
+    /// use apex_camera_models::camera::{CameraModel, Resolution};
     ///
     /// let params = DVector::from_vec(vec![
     ///     500.0, 500.0, 320.0, 240.0, // Intrinsics
@@ -270,8 +270,8 @@ impl CameraModel for RadTanModel {
     ///
     /// ```rust
     /// use nalgebra::{DVector, Vector2};
-    /// use fisheye_tools::camera::rad_tan::RadTanModel;
-    /// use fisheye_tools::camera::{CameraModel, Resolution};
+    /// use apex_camera_models::camera::rad_tan::RadTanModel;
+    /// use apex_camera_models::camera::{CameraModel, Resolution};
     ///
     /// let params = DVector::from_vec(vec![
     ///     500.0, 500.0, 320.0, 240.0, // Intrinsics

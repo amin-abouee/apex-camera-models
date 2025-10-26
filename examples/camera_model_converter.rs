@@ -24,16 +24,16 @@
 //!   --input-path samples/kannala_brandt.yaml
 //! ```
 
-use clap::Parser;
-use fisheye_tools::camera::{
+use apex_camera_models::camera::{
     CameraModel, CameraModelEnum, DoubleSphereModel, EucmModel, KannalaBrandtModel, PinholeModel,
     RadTanModel, UcmModel,
 };
-use fisheye_tools::optimization::{
+use apex_camera_models::optimization::{
     DoubleSphereOptimizationCost, EucmOptimizationCost, KannalaBrandtOptimizationCost, Optimizer,
     RadTanOptimizationCost, UcmOptimizationCost,
 };
-use fisheye_tools::util::{self, ConversionMetrics, ValidationResults};
+use apex_camera_models::util::{self, ConversionMetrics, ValidationResults};
+use clap::Parser;
 use log::info;
 
 // Structs now imported from util module

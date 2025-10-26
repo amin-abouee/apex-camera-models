@@ -1,13 +1,13 @@
 [package]
-name = "fisheye-tools"
+name = "apex-camera-models"
 version = "0.4.1"
 edition = "2021"
 authors = ["Amin Abouee"]
 description = "A comprehensive Rust library for fisheye and wide-angle camera models with tiny-solver-based optimization"
 license = "MIT"
-repository = "https://github.com/username/fisheye-tools"
-homepage = "https://github.com/username/fisheye-tools"
-documentation = "https://docs.rs/fisheye-tools"
+repository = "https://github.com/username/apex-camera-models"
+homepage = "https://github.com/username/apex-camera-models"
+documentation = "https://docs.rs/apex-camera-models"
 keywords = ["camera", "fisheye", "computer-vision", "calibration", "optimization"]
 categories = ["computer-vision", "science", "algorithms"]
 readme = "README.md"

@@ -48,8 +48,8 @@ use yaml_rust::YamlLoader;
 ///
 /// ```rust
 /// use nalgebra::DVector;
-/// use fisheye_tools::camera::eucm::EucmModel;
-/// use fisheye_tools::camera::{Intrinsics, Resolution, CameraModel, CameraModelError};
+/// use apex_camera_models::camera::eucm::EucmModel;
+/// use apex_camera_models::camera::{Intrinsics, Resolution, CameraModel, CameraModelError};
 ///
 /// // Parameters: fx, fy, cx, cy, alpha, beta
 /// let params = DVector::from_vec(vec![1313.83, 1313.27, 960.471, 546.981, 1.01674, 0.5]);
@@ -106,8 +106,8 @@ impl EucmModel {
     ///
     /// ```rust
     /// use nalgebra::DVector;
-    /// use fisheye_tools::camera::eucm::EucmModel;
-    /// use fisheye_tools::camera::Resolution;
+    /// use apex_camera_models::camera::eucm::EucmModel;
+    /// use apex_camera_models::camera::Resolution;
     ///
     /// let params_vec = DVector::from_vec(vec![
     ///     1313.83, // fx

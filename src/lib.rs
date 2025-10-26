@@ -1,4 +1,4 @@
-//! Fisheye Tools Library
+//! Apex Camera Models Library
 //!
 //! A comprehensive Rust library for fisheye camera model conversions and calibration.
 //! This library provides implementations of various camera models including:

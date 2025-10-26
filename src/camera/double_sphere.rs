@@ -44,8 +44,8 @@ use yaml_rust::YamlLoader;
 ///
 /// ```rust
 /// use nalgebra::DVector;
-/// use fisheye_tools::camera::double_sphere::DoubleSphereModel;
-/// use fisheye_tools::camera::{Intrinsics, Resolution, CameraModel, CameraModelError};
+/// use apex_camera_models::camera::double_sphere::DoubleSphereModel;
+/// use apex_camera_models::camera::{Intrinsics, Resolution, CameraModel, CameraModelError};
 ///
 /// // Parameters: fx, fy, cx, cy, alpha, xi
 /// let params = DVector::from_vec(vec![350.0, 350.0, 320.0, 240.0, 0.58, -0.18]);
@@ -113,8 +113,8 @@ impl DoubleSphereModel {
     ///
     /// ```rust
     /// use nalgebra::DVector;
-    /// use fisheye_tools::camera::double_sphere::DoubleSphereModel;
-    /// use fisheye_tools::camera::Resolution;
+    /// use apex_camera_models::camera::double_sphere::DoubleSphereModel;
+    /// use apex_camera_models::camera::Resolution;
     ///
     /// let params_vec = DVector::from_vec(vec![
     ///     348.11, // fx
@@ -254,8 +254,8 @@ impl CameraModel for DoubleSphereModel {
     ///
     /// ```rust
     /// use nalgebra::{DVector, Vector3};
-    /// use fisheye_tools::camera::double_sphere::DoubleSphereModel;
-    /// use fisheye_tools::camera::{CameraModel, Resolution, CameraModelError};
+    /// use apex_camera_models::camera::double_sphere::DoubleSphereModel;
+    /// use apex_camera_models::camera::{CameraModel, Resolution, CameraModelError};
     ///
     /// let params = DVector::from_vec(vec![350.0, 350.0, 320.0, 240.0, 0.58, -0.18]);
     /// let mut model = DoubleSphereModel::new(&params).unwrap();
@@ -328,8 +328,8 @@ impl CameraModel for DoubleSphereModel {
     ///
     /// ```rust
     /// use nalgebra::{DVector, Vector2};
-    /// use fisheye_tools::camera::double_sphere::DoubleSphereModel;
-    /// use fisheye_tools::camera::{CameraModel, Resolution, CameraModelError};
+    /// use apex_camera_models::camera::double_sphere::DoubleSphereModel;
+    /// use apex_camera_models::camera::{CameraModel, Resolution, CameraModelError};
     ///
     /// let params = DVector::from_vec(vec![350.0, 350.0, 320.0, 240.0, 0.58, -0.18]);
     /// let mut model = DoubleSphereModel::new(&params).unwrap();

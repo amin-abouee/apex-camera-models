@@ -1,4 +1,4 @@
-# fisheye-tools
+# Apex Camera Models
 
 A comprehensive Rust library for fisheye camera model conversions and optimization.
 
@@ -58,8 +58,8 @@ cargo run --example camera_model_converter -- \
 ### Programmatic API
 
 ```rust
-use fisheye_tools::camera::*;
-use fisheye_tools::optimization::*;
+use apex_camera_models::camera::*;
+use apex_camera_models::optimization::*;
 
 // Load any supported camera model
 let kb_model = KannalaBrandtModel::load_from_yaml("camera.yaml")?;
@@ -113,7 +113,7 @@ cargo run --example camera_model_converter -- \
 ### Camera Model Usage
 
 ```rust
-use fisheye_tools::camera::{CameraModel, DoubleSphereModel};
+use apex_camera_models::camera::{CameraModel, DoubleSphereModel};
 use nalgebra::Vector3;
 
 let model = DoubleSphereModel::new(&params)?;
@@ -191,7 +191,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-fisheye-tools = "0.3.2"
+apex-camera-models = "0.3.2"
 ```
 
 ## Contributing
@@ -211,9 +211,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 If you use this library in your research, please cite:
 
 ```bibtex
-@software{fisheye_tools_2024,
-  title={fisheye-tools: A Rust Library for Fisheye Camera Model Conversions},
+@software{apex_camera_models_2024,
+  title={Apex Camera Models: A Rust Library for Fisheye Camera Model Conversions},
   year={2024},
-  url={https://github.com/yourusername/fisheye-tools}
+  url={https://github.com/yourusername/apex-camera-models}
 }
 ```

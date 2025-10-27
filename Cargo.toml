@@ -26,6 +26,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 # Core dependencies
 nalgebra = "0.33.2"
 tiny-solver = "0.17.1"
+apex-solver = "0.1.4"
 # factrs = "0.2.0" # Replaced with tiny-solver
 thiserror = "2.0.12"
 

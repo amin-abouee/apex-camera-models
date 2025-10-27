@@ -20,12 +20,14 @@ use serde::{Deserialize, Serialize};
 pub mod double_sphere;
 pub mod eucm;
 pub mod kannala_brandt;
+pub mod projection_ds_factor;
 pub mod rad_tan;
 pub mod ucm;
 
 pub use double_sphere::DoubleSphereOptimizationCost;
 pub use eucm::EucmOptimizationCost;
 pub use kannala_brandt::KannalaBrandtOptimizationCost;
+pub use projection_ds_factor::DoubleSphereProjectionFactor;
 pub use rad_tan::RadTanOptimizationCost;
 pub use ucm::UcmOptimizationCost;
 

@@ -6,9 +6,13 @@
 //! camera model with the optimization framework.
 
 use crate::camera::{CameraModel, CameraModelError, DoubleSphereModel};
+use crate::optimization::projection_ds_factor::DoubleSphereProjectionFactor;
 use crate::optimization::Optimizer;
 use crate::util::compute_reprojection_error;
 
+use apex_solver::core::problem::{Problem, VariableEnum};
+use apex_solver::manifold::ManifoldType;
+use apex_solver::optimizer::levenberg_marquardt::{LevenbergMarquardt, LevenbergMarquardtConfig};
 use log::info;
 use nalgebra::{DVector, Matrix2xX, Matrix3xX, Vector2, Vector3};
 use std::collections::HashMap;
@@ -129,18 +133,6 @@ impl DoubleSphereOptimizationCost {
             points3d,
             points2d,
         }
-    }
-}
-
-impl fmt::Debug for DoubleSphereOptimizationCost {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "DoubleSphereCostModel Summary:\n model: {:?}\n points3d size: {}, points2d size: {} ",
-            self.model,
-            self.points3d.ncols(),
-            self.points2d.ncols(),
-        )
     }
 }
 
@@ -355,6 +347,140 @@ impl Optimizer for DoubleSphereOptimizationCost {
     /// For the Double Sphere model, these are `[alpha, xi]`.
     fn get_distortion(&self) -> Vec<f64> {
         self.model.get_distortion()
+    }
+}
+
+impl DoubleSphereOptimizationCost {
+    /// Optimizes the Double Sphere camera model parameters using apex-solver.
+    ///
+    /// This method uses the apex-solver's Levenberg-Marquardt algorithm with
+    /// analytical Jacobians to minimize the reprojection error between the observed
+    /// 2D points and the 2D points projected from the 3D points.
+    ///
+    /// The parameters being optimized are `[fx, fy, cx, cy, alpha, xi]`.
+    /// Alpha parameter is constrained to be between 0 and 1.
+    ///
+    /// # Arguments
+    ///
+    /// * `verbose` - If `true`, prints optimization progress and results to the console.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the optimization was successful and the model parameters
+    ///   have been updated.
+    /// * `Err(CameraModelError)` - If an error occurred during optimization,
+    ///   such as invalid input parameters or numerical issues.
+    pub fn optimize_with_apex(&mut self, verbose: bool) -> Result<(), CameraModelError> {
+        if self.points3d.ncols() != self.points2d.ncols() {
+            return Err(CameraModelError::InvalidParams(
+                "Number of 2D and 3D points must match".to_string(),
+            ));
+        }
+
+        if self.points3d.ncols() == 0 {
+            return Err(CameraModelError::InvalidParams(
+                "Points arrays cannot be empty".to_string(),
+            ));
+        }
+
+        if let Ok(error_statistic) =
+            compute_reprojection_error(Some(&self.model), &self.points3d, &self.points2d)
+        {
+            info!("Before Optimization (apex-solver): {error_statistic:?}");
+        }
+
+        // Convert points to Vec format for the factor
+        let points_3d_vec: Vec<Vector3<f64>> = (0..self.points3d.ncols())
+            .map(|i| self.points3d.column(i).into_owned())
+            .collect();
+        let points_2d_vec: Vec<Vector2<f64>> = (0..self.points2d.ncols())
+            .map(|i| self.points2d.column(i).into_owned())
+            .collect();
+
+        // Create the projection factor
+        let projection_factor = DoubleSphereProjectionFactor::new(points_3d_vec, points_2d_vec);
+
+        // Create apex-solver Problem
+        let mut problem = Problem::new();
+
+        // Add the residual block
+        let var_name = "camera_params";
+        problem.add_residual_block(&[var_name], Box::new(projection_factor), None);
+
+        // Initial camera parameters: [fx, fy, cx, cy, alpha, xi]
+        let initial_params = DVector::from_vec(vec![
+            self.model.intrinsics.fx,
+            self.model.intrinsics.fy,
+            self.model.intrinsics.cx,
+            self.model.intrinsics.cy,
+            self.model.alpha.clamp(1e-6, 1.0), // Clamp alpha to valid range
+            self.model.xi,
+        ]);
+
+        // Setup initial values with RN manifold (Euclidean space)
+        let mut initial_values = HashMap::new();
+        initial_values.insert(var_name.to_string(), (ManifoldType::RN, initial_params));
+
+        if verbose {
+            info!("Starting optimization with apex-solver Levenberg-Marquardt...");
+        }
+
+        // Configure the Levenberg-Marquardt optimizer
+        let config = LevenbergMarquardtConfig::new()
+            .with_max_iterations(100)
+            .with_cost_tolerance(1e-6)
+            .with_parameter_tolerance(1e-8)
+            .with_gradient_tolerance(1e-6)
+            .with_verbose(verbose);
+
+        let mut solver = LevenbergMarquardt::with_config(config);
+
+        // Run the optimization
+        let result = solver
+            .optimize(&problem, &initial_values)
+            .map_err(|e| CameraModelError::NumericalError(format!("apex-solver failed: {e:?}")))?;
+
+        if verbose {
+            info!("Optimization finished with apex-solver");
+            info!("Final cost: {:.6e}", result.final_cost);
+            info!("Iterations: {}", result.iterations);
+            info!("Status: {:?}", result.status);
+        }
+
+        // Extract the optimized parameters
+        let optimized_var = result
+            .parameters
+            .get(var_name)
+            .ok_or_else(|| CameraModelError::NumericalError("Variable not found".to_string()))?;
+
+        // Convert VariableEnum to DVector
+        let optimized_params = match optimized_var {
+            VariableEnum::Rn(rn_var) => rn_var.value.to_vector(),
+            _ => {
+                return Err(CameraModelError::NumericalError(
+                    "Unexpected variable type".to_string(),
+                ))
+            }
+        };
+
+        // Update the model parameters
+        self.model.intrinsics.fx = optimized_params[0];
+        self.model.intrinsics.fy = optimized_params[1];
+        self.model.intrinsics.cx = optimized_params[2];
+        self.model.intrinsics.cy = optimized_params[3];
+        self.model.alpha = optimized_params[4].clamp(1e-6, 1.0); // Ensure bounds
+        self.model.xi = optimized_params[5];
+
+        // Validate the optimized parameters
+        self.model.validate_params()?;
+
+        if let Ok(error_statistic) =
+            compute_reprojection_error(Some(&self.model), &self.points3d, &self.points2d)
+        {
+            info!("After Optimization (apex-solver): {error_statistic:?}");
+        }
+
+        Ok(())
     }
 }
 

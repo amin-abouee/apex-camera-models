@@ -216,7 +216,7 @@ impl CameraModel for RadTanModel {
 
         let r2 = x_prime.powi(2) + y_prime.powi(2);
         let r4 = r2.powi(2);
-        let r6 = r4.powi(2); // Original r6 calculation: r4.powi(2) -> r2*r2*r2 or r2*r4
+        let r6 = r4 * r2; // r^6 = r^4 * r^2
 
         // Apply radial and tangential distortion
         let x_distorted = x_prime * (1.0 + k1 * r2 + k2 * r4 + k3 * r6)

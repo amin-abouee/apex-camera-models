@@ -5,9 +5,13 @@
 //! the necessary structures and traits to integrate the EUCM
 //! camera model with the optimization framework.
 
+use super::eucm_factor::EucmProjectionFactor;
+use super::Optimizer;
 use crate::camera::{CameraModel, CameraModelError, EucmModel};
-use crate::optimization::Optimizer;
 
+use apex_solver::core::problem::{Problem, VariableEnum};
+use apex_solver::manifold::ManifoldType;
+use apex_solver::optimizer::levenberg_marquardt::{LevenbergMarquardt, LevenbergMarquardtConfig};
 use log::info;
 use nalgebra::{DVector, Matrix2xX, Matrix3xX, Vector2, Vector3};
 use std::collections::HashMap;
@@ -353,6 +357,122 @@ impl Optimizer for EucmOptimizationCost {
     /// For the EUCM model, these are `[alpha, beta]`.
     fn get_distortion(&self) -> Vec<f64> {
         self.model.get_distortion()
+    }
+}
+
+impl EucmOptimizationCost {
+    /// Optimizes the EUCM camera model parameters using apex-solver with analytical Jacobians.
+    ///
+    /// This method uses the Levenberg-Marquardt algorithm provided by the `apex-solver`
+    /// crate with hand-derived analytical Jacobians to minimize the reprojection error
+    /// between the observed 2D points and the 2D points projected from the 3D points
+    /// using the current camera model parameters.
+    ///
+    /// The parameters being optimized are `[fx, fy, cx, cy, alpha, beta]`.
+    ///
+    /// # Arguments
+    ///
+    /// * `verbose` - If `true`, prints optimization progress and results to the console.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the optimization was successful and the model parameters
+    ///   have been updated.
+    /// * `Err(CameraModelError)` - If an error occurred during optimization,
+    ///   such as invalid input parameters or numerical issues.
+    pub fn optimize_with_apex(&mut self, verbose: bool) -> Result<(), CameraModelError> {
+        if self.points3d.ncols() != self.points2d.ncols() {
+            return Err(CameraModelError::InvalidParams(
+                "Number of 2D and 3D points must match".to_string(),
+            ));
+        }
+
+        if self.points3d.ncols() == 0 {
+            return Err(CameraModelError::InvalidParams(
+                "Points arrays cannot be empty".to_string(),
+            ));
+        }
+
+        // Convert Matrix3xX and Matrix2xX to Vec<Vector3> and Vec<Vector2>
+        let points_3d_vec: Vec<Vector3<f64>> = (0..self.points3d.ncols())
+            .map(|i| self.points3d.column(i).into_owned())
+            .collect();
+        let points_2d_vec: Vec<Vector2<f64>> = (0..self.points2d.ncols())
+            .map(|i| self.points2d.column(i).into_owned())
+            .collect();
+
+        // Create the EUCM projection factor
+        let projection_factor = EucmProjectionFactor::new(points_3d_vec, points_2d_vec);
+
+        // Create apex-solver Problem
+        let mut problem = Problem::new();
+
+        // Variable name for camera parameters
+        let var_name = "eucm_params";
+
+        // Add the residual block with the projection factor
+        problem.add_residual_block(&[var_name], Box::new(projection_factor), None);
+
+        // Set up initial values: [fx, fy, cx, cy, alpha, beta]
+        let initial_params = DVector::from_vec(vec![
+            self.model.intrinsics.fx,
+            self.model.intrinsics.fy,
+            self.model.intrinsics.cx,
+            self.model.intrinsics.cy,
+            self.model.alpha,
+            self.model.beta,
+        ]);
+
+        // Create initial values map with the correct manifold type
+        let mut initial_values = HashMap::new();
+        initial_values.insert(var_name.to_string(), (ManifoldType::RN, initial_params));
+
+        if verbose {
+            info!("Starting EUCM optimization with apex-solver Levenberg-Marquardt...");
+        }
+
+        // Configure and run Levenberg-Marquardt optimizer
+        let config = LevenbergMarquardtConfig::new()
+            .with_max_iterations(100)
+            .with_cost_tolerance(1e-6)
+            .with_parameter_tolerance(1e-8);
+
+        let mut solver = LevenbergMarquardt::with_config(config);
+        let result = solver
+            .optimize(&problem, &initial_values)
+            .map_err(|e| CameraModelError::NumericalError(format!("apex-solver failed: {}", e)))?;
+
+        if verbose {
+            info!("EUCM apex-solver optimization finished");
+        }
+
+        // Extract the optimized parameters
+        let optimized_var = result.parameters.get(var_name).ok_or_else(|| {
+            CameraModelError::NumericalError("Failed to get optimized parameters".to_string())
+        })?;
+
+        // Extract the actual parameter values from VariableEnum
+        let optimized_params = match optimized_var {
+            VariableEnum::Rn(rn_var) => rn_var.value.to_vector(),
+            _ => {
+                return Err(CameraModelError::NumericalError(
+                    "Unexpected variable type".to_string(),
+                ))
+            }
+        };
+
+        // Update the model parameters
+        self.model.intrinsics.fx = optimized_params[0];
+        self.model.intrinsics.fy = optimized_params[1];
+        self.model.intrinsics.cx = optimized_params[2];
+        self.model.intrinsics.cy = optimized_params[3];
+        self.model.alpha = optimized_params[4];
+        self.model.beta = optimized_params[5];
+
+        // Validate the optimized parameters
+        self.model.validate_params()?;
+
+        Ok(())
     }
 }
 

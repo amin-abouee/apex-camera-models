@@ -245,7 +245,6 @@ impl Factor for DoubleSphereProjectionFactor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use approx::assert_relative_eq;
 
     #[test]
     fn test_factor_creation() {
@@ -272,7 +271,9 @@ mod tests {
         let factor = DoubleSphereProjectionFactor::new(points_3d, points_2d);
 
         // Camera parameters: [fx, fy, cx, cy, alpha, xi]
-        let params = vec![DVector::from_vec(vec![300.0, 300.0, 320.0, 240.0, 0.5, 0.1])];
+        let params = vec![DVector::from_vec(vec![
+            300.0, 300.0, 320.0, 240.0, 0.5, 0.1,
+        ])];
 
         let (residual, jacobian) = factor.linearize(&params, true);
 
@@ -292,7 +293,9 @@ mod tests {
         let factor = DoubleSphereProjectionFactor::new(points_3d, points_2d);
 
         // Parameters with perfect projection at center
-        let params = vec![DVector::from_vec(vec![300.0, 300.0, 320.0, 240.0, 0.5, 0.1])];
+        let params = vec![DVector::from_vec(vec![
+            300.0, 300.0, 320.0, 240.0, 0.5, 0.1,
+        ])];
 
         let (residual, _) = factor.linearize(&params, false);
 
@@ -308,7 +311,9 @@ mod tests {
 
         let factor = DoubleSphereProjectionFactor::new(points_3d, points_2d);
 
-        let params = vec![DVector::from_vec(vec![300.0, 300.0, 320.0, 240.0, 0.5, 0.1])];
+        let params = vec![DVector::from_vec(vec![
+            300.0, 300.0, 320.0, 240.0, 0.5, 0.1,
+        ])];
 
         let (_, jacobian) = factor.linearize(&params, true);
 

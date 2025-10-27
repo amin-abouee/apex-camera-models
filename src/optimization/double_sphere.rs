@@ -5,9 +5,9 @@
 //! the necessary structures and traits to integrate the Double Sphere
 //! camera model with the optimization framework.
 
+use super::double_sphere_factor::DoubleSphereProjectionFactor;
+use super::Optimizer;
 use crate::camera::{CameraModel, CameraModelError, DoubleSphereModel};
-use crate::optimization::projection_ds_factor::DoubleSphereProjectionFactor;
-use crate::optimization::Optimizer;
 use crate::util::compute_reprojection_error;
 
 use apex_solver::core::problem::{Problem, VariableEnum};
@@ -16,7 +16,6 @@ use apex_solver::optimizer::levenberg_marquardt::{LevenbergMarquardt, LevenbergM
 use log::info;
 use nalgebra::{DVector, Matrix2xX, Matrix3xX, Vector2, Vector3};
 use std::collections::HashMap;
-use std::fmt;
 use tiny_solver::factors::Factor;
 use tiny_solver::{LevenbergMarquardtOptimizer, Optimizer as TinySolverOptimizer};
 

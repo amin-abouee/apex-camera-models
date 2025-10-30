@@ -26,6 +26,7 @@ pub mod kannala_brandt_factor;
 pub mod rad_tan;
 pub mod rad_tan_factor;
 pub mod ucm;
+pub mod ucm_factor;
 
 pub use double_sphere::DoubleSphereOptimizationCost;
 pub use double_sphere_factor::DoubleSphereProjectionFactor;
@@ -36,6 +37,7 @@ pub use kannala_brandt_factor::KannalaBrandtProjectionFactor;
 pub use rad_tan::RadTanOptimizationCost;
 pub use rad_tan_factor::RadTanProjectionFactor;
 pub use ucm::UcmOptimizationCost;
+pub use ucm_factor::UcmProjectionFactor;
 
 use crate::camera::{CameraModelError, Intrinsics, Resolution};
 
@@ -56,10 +58,11 @@ pub struct ProjectionError {
 /// reprojection error given a set of 3D-2D point correspondences.
 ///
 pub trait Optimizer {
-    /// Performs non-linear optimization to refine the camera model parameters.
+    /// Performs non-linear optimization to refine the camera model parameters using tiny-solver.
     ///
     /// This method should adjust the internal camera model's parameters (intrinsics
-    /// and distortion coefficients) to minimize the reprojection error.
+    /// and distortion coefficients) to minimize the reprojection error using
+    /// automatic differentiation.
     ///
     /// # Arguments
     ///
@@ -74,6 +77,31 @@ pub trait Optimizer {
     ///   such as invalid input parameters, numerical issues, or if the
     ///   optimization failed to converge.
     fn optimize(&mut self, verbose: bool) -> Result<(), CameraModelError>;
+
+    /// Performs non-linear optimization using apex-solver with analytical Jacobians.
+    ///
+    /// This method uses hand-derived analytical Jacobians for more efficient
+    /// optimization compared to automatic differentiation. It adjusts the
+    /// internal camera model's parameters to minimize the reprojection error.
+    ///
+    /// # Arguments
+    ///
+    /// * `verbose` - If `true`, the optimizer may print progress information
+    ///   and results to the console.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the optimization was successful and the model parameters
+    ///   have been updated.
+    /// * `Err(CameraModelError)` - If an error occurred during optimization.
+    ///
+    /// # Default Implementation
+    ///
+    /// The default implementation calls `optimize()` for backward compatibility.
+    /// Models with apex-solver support should override this method.
+    fn optimize_with_apex(&mut self, verbose: bool) -> Result<(), CameraModelError> {
+        self.optimize(verbose)
+    }
 
     /// Performs a linear estimation of some camera model parameters.
     ///

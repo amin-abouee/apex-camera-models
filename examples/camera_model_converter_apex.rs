@@ -58,7 +58,7 @@ use apex_camera_models::camera::{
 };
 use apex_camera_models::optimization::{
     DoubleSphereOptimizationCost, EucmOptimizationCost, KannalaBrandtOptimizationCost, Optimizer,
-    RadTanOptimizationCost,
+    RadTanOptimizationCost, UcmOptimizationCost,
 };
 use apex_camera_models::util::{self, ConversionMetrics, ValidationResults};
 use clap::Parser;
@@ -284,13 +284,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // UCM is not yet supported with apex-solver
-    // Skip UCM conversion - not implemented with analytical Jacobians yet
-    if matches!(cli.input_model.to_lowercase().as_str(), "ucm" | "unified") {
-        println!("\nℹ️  Note: UCM as input is supported, but UCM as output target is not yet");
+    // Convert to UCM (if not the input model)
+    if !matches!(cli.input_model.to_lowercase().as_str(), "ucm" | "unified") {
         println!(
-            "   implemented with apex-solver. Use camera_model_converter (tiny-solver) instead."
+            "\n📐 Converting {} → Unified Camera Model [apex-solver]",
+            cli.input_model.to_lowercase(),
         );
+        println!("{}", "-".repeat(65 + cli.input_model.len()));
+        if let Ok(metrics) = convert_to_ucm(
+            &*input_model,
+            &points_3d,
+            &points_2d,
+            reference_image.as_ref(),
+        ) {
+            all_metrics.push(metrics);
+        }
     }
 
     // Convert to EUCM (if not the input model)
@@ -609,6 +617,95 @@ fn convert_to_rad_tan(
 }
 
 /// Convert to EUCM using apex-solver with analytical Jacobians
+fn convert_to_ucm(
+    input_model: &dyn CameraModel,
+    points_3d: &nalgebra::Matrix3xX<f64>,
+    points_2d: &nalgebra::Matrix2xX<f64>,
+    reference_image: Option<&image::RgbImage>,
+) -> Result<ConversionMetrics, Box<dyn std::error::Error>> {
+    let start_time = Instant::now();
+
+    // Initialize UCM model
+    let initial_model = UcmModel {
+        intrinsics: input_model.get_intrinsics(),
+        resolution: input_model.get_resolution(),
+        alpha: 0.5, // Initial guess
+    };
+
+    // Compute initial reprojection error
+    let initial_error =
+        util::compute_reprojection_error(Some(&initial_model), points_3d, points_2d)?;
+
+    let mut optimizer =
+        UcmOptimizationCost::new(initial_model, points_3d.clone(), points_2d.clone());
+
+    // Linear estimation
+    optimizer.linear_estimation()?;
+
+    // NON-LINEAR OPTIMIZATION WITH APEX-SOLVER (ANALYTICAL JACOBIANS)
+    info!("🚀 Running apex-solver optimization for UCM...");
+    let optimization_result = optimizer.optimize_with_apex(true);
+
+    let optimization_time = start_time.elapsed().as_millis() as f64;
+
+    // Get final parameters
+    let final_intrinsics = optimizer.get_intrinsics();
+    let final_distortion = optimizer.get_distortion();
+
+    // Compute reprojection error
+    let final_model = UcmModel {
+        intrinsics: final_intrinsics.clone(),
+        resolution: optimizer.get_resolution(),
+        alpha: final_distortion[0],
+    };
+
+    let reprojection_result =
+        util::compute_reprojection_error(Some(&final_model), points_3d, points_2d)?;
+
+    let convergence_status = match optimization_result {
+        Ok(()) => "Converged (apex-solver)".to_string(),
+        Err(_) => "Linear Only".to_string(),
+    };
+
+    let validation_results = util::validate_conversion_accuracy(&final_model, input_model)
+        .unwrap_or_else(|_| ValidationResults {
+            center_error: f64::NAN,
+            near_center_error: f64::NAN,
+            mid_region_error: f64::NAN,
+            edge_region_error: f64::NAN,
+            far_edge_error: f64::NAN,
+            average_error: f64::NAN,
+            max_error: f64::NAN,
+            status: "NEEDS IMPROVEMENT".to_string(),
+            region_data: vec![],
+        });
+
+    // Compute image quality metrics
+    let image_quality = util::compute_image_quality_metrics(
+        input_model,
+        &final_model,
+        points_3d,
+        "unified_camera_model_apex",
+        reference_image,
+    )
+    .map_err(|e| info!("Failed to compute image quality metrics: {e:?}"))
+    .ok();
+
+    let metrics = ConversionMetrics {
+        model: CameraModelEnum::Ucm(final_model),
+        model_name: "Unified Camera Model (apex-solver)".to_string(),
+        final_reprojection_error: reprojection_result,
+        initial_reprojection_error: initial_error,
+        optimization_time_ms: optimization_time,
+        convergence_status,
+        validation_results,
+        image_quality,
+    };
+
+    util::display_detailed_results(&metrics);
+    Ok(metrics)
+}
+
 fn convert_to_eucm(
     input_model: &dyn CameraModel,
     points_3d: &nalgebra::Matrix3xX<f64>,

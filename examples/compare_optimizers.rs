@@ -22,11 +22,11 @@
 //! ```
 
 use apex_camera_models::camera::{
-    CameraModel, DoubleSphereModel, EucmModel, KannalaBrandtModel, RadTanModel,
+    CameraModel, DoubleSphereModel, EucmModel, KannalaBrandtModel, RadTanModel, UcmModel,
 };
 use apex_camera_models::optimization::{
     DoubleSphereOptimizationCost, EucmOptimizationCost, KannalaBrandtOptimizationCost, Optimizer,
-    RadTanOptimizationCost,
+    RadTanOptimizationCost, UcmOptimizationCost,
 };
 use apex_camera_models::util;
 use clap::Parser;
@@ -36,9 +36,8 @@ use std::time::Instant;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// Camera model type: "ds" (Double Sphere), "kb" (Kannala-Brandt), "eucm" (Extended Unified Camera Model), or "radtan" (Radial-Tangential)
-    /// Note: UCM is not yet supported in apex-solver comparison
-    #[arg(short = 'm', long, value_parser = ["ds", "kb", "eucm", "radtan"])]
+    /// Camera model type: "ds" (Double Sphere), "kb" (Kannala-Brandt), "ucm" (Unified Camera Model), "eucm" (Extended Unified Camera Model), or "radtan" (Radial-Tangential)
+    #[arg(short = 'm', long, value_parser = ["ds", "kb", "ucm", "eucm", "radtan"])]
     model: String,
 
     /// Path to the input model YAML file
@@ -78,6 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input_path = cli.input_path.unwrap_or_else(|| match cli.model.as_str() {
         "ds" => "samples/double_sphere.yaml".to_string(),
         "kb" => "samples/kannala_brandt.yaml".to_string(),
+        "ucm" => "samples/ucm.yaml".to_string(),
         "eucm" => "samples/eucm.yaml".to_string(),
         "radtan" => "samples/rad_tan.yaml".to_string(),
         _ => unreachable!(),
@@ -91,6 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match cli.model.as_str() {
             "ds" => "Double Sphere",
             "kb" => "Kannala-Brandt",
+            "ucm" => "Unified Camera Model",
             "eucm" => "Extended Unified Camera Model",
             "radtan" => "Radial-Tangential",
             _ => unreachable!(),
@@ -103,6 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match cli.model.as_str() {
         "ds" => run_ds_comparison(&input_path, cli.num_points, cli.noise_level, cli.verbose),
         "kb" => run_kb_comparison(&input_path, cli.num_points, cli.noise_level, cli.verbose),
+        "ucm" => run_ucm_comparison(&input_path, cli.num_points, cli.noise_level, cli.verbose),
         "eucm" => run_eucm_comparison(&input_path, cli.num_points, cli.noise_level, cli.verbose),
         "radtan" => {
             run_radtan_comparison(&input_path, cli.num_points, cli.noise_level, cli.verbose)
@@ -659,6 +661,254 @@ fn run_ucm_apex_solver(
     })
 }
 */
+
+// ==================== EUCM COMPARISON ====================
+
+// ==================== UCM COMPARISON ====================
+
+fn run_ucm_comparison(
+    input_path: &str,
+    num_points: usize,
+    noise_level: f64,
+    verbose: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Load reference model
+    let ref_model = UcmModel::load_from_yaml(input_path)?;
+
+    display_ucm_model_params(&ref_model, "Reference");
+
+    // Generate point correspondences
+    let (points_2d, points_3d) = util::sample_points(Some(&ref_model), num_points)?;
+    println!(
+        "✅ Generated {} 3D-2D point correspondences\n",
+        points_2d.ncols()
+    );
+
+    // Create noisy initial model
+    let noisy_model = create_noisy_ucm_model(&ref_model, noise_level);
+    display_ucm_model_params(&noisy_model, "Initial (Noisy)");
+
+    // Compute initial error
+    let initial_error =
+        util::compute_reprojection_error(Some(&noisy_model), &points_3d, &points_2d)?;
+    println!(
+        "📊 Initial Reprojection Error: {:.6} pixels (RMSE)\n",
+        initial_error.rmse
+    );
+
+    // Run tiny-solver optimization
+    let tiny_result = run_ucm_tiny_solver(
+        &noisy_model,
+        &points_3d,
+        &points_2d,
+        verbose,
+        initial_error.rmse,
+    )?;
+
+    // Run apex-solver optimization
+    let apex_result = run_ucm_apex_solver(
+        &noisy_model,
+        &points_3d,
+        &points_2d,
+        verbose,
+        initial_error.rmse,
+    )?;
+
+    // Display comparison
+    display_comparison_table(&[tiny_result.clone(), apex_result.clone()]);
+    display_ucm_parameter_comparison(&ref_model, &tiny_result, &apex_result);
+    determine_winner(&tiny_result, &apex_result);
+
+    Ok(())
+}
+
+fn create_noisy_ucm_model(model: &UcmModel, noise_level: f64) -> UcmModel {
+    UcmModel {
+        intrinsics: apex_camera_models::camera::Intrinsics {
+            fx: model.intrinsics.fx * (1.0 + noise_level * 0.3),
+            fy: model.intrinsics.fy * (1.0 - noise_level * 0.25),
+            cx: model.intrinsics.cx + noise_level * 10.0,
+            cy: model.intrinsics.cy - noise_level * 12.0,
+        },
+        resolution: model.resolution.clone(),
+        alpha: (model.alpha * (1.0 - noise_level * 0.2)).clamp(1e-6, 1.0),
+    }
+}
+
+fn run_ucm_tiny_solver(
+    initial_model: &UcmModel,
+    points_3d: &nalgebra::Matrix3xX<f64>,
+    points_2d: &nalgebra::Matrix2xX<f64>,
+    verbose: bool,
+    initial_rmse: f64,
+) -> Result<OptimizationResult, Box<dyn std::error::Error>> {
+    println!("{}", "-".repeat(80));
+    println!("🚀 Running tiny-solver (automatic differentiation)...");
+    println!("{}", "-".repeat(80));
+    println!();
+
+    let mut optimizer =
+        UcmOptimizationCost::new(initial_model.clone(), points_3d.clone(), points_2d.clone());
+
+    optimizer.linear_estimation()?;
+
+    let start = Instant::now();
+    optimizer.optimize(verbose)?;
+    let elapsed = start.elapsed();
+
+    let final_model = UcmModel::new(&nalgebra::DVector::from_vec(vec![
+        optimizer.get_intrinsics().fx,
+        optimizer.get_intrinsics().fy,
+        optimizer.get_intrinsics().cx,
+        optimizer.get_intrinsics().cy,
+        optimizer.get_distortion()[0],
+    ]))?;
+
+    let final_error = util::compute_reprojection_error(Some(&final_model), points_3d, points_2d)?;
+    let improvement = ((initial_rmse - final_error.rmse) / initial_rmse) * 100.0;
+
+    println!(
+        "✅ tiny-solver completed in {:.2} ms",
+        elapsed.as_secs_f64() * 1000.0
+    );
+    println!(
+        "   Final RMSE: {:.6} pixels | Improvement: {:.2}%\n",
+        final_error.rmse, improvement
+    );
+
+    Ok(OptimizationResult {
+        optimizer_name: "tiny-solver".to_string(),
+        success: true,
+        optimization_time_ms: elapsed.as_secs_f64() * 1000.0,
+        initial_rmse,
+        final_rmse: final_error.rmse,
+        improvement_percent: improvement,
+        final_params: vec![
+            final_model.intrinsics.fx,
+            final_model.intrinsics.fy,
+            final_model.intrinsics.cx,
+            final_model.intrinsics.cy,
+            final_model.alpha,
+        ],
+    })
+}
+
+fn run_ucm_apex_solver(
+    initial_model: &UcmModel,
+    points_3d: &nalgebra::Matrix3xX<f64>,
+    points_2d: &nalgebra::Matrix2xX<f64>,
+    verbose: bool,
+    initial_rmse: f64,
+) -> Result<OptimizationResult, Box<dyn std::error::Error>> {
+    println!("{}", "-".repeat(80));
+    println!("🚀 Running apex-solver (analytical Jacobians)...");
+    println!("{}", "-".repeat(80));
+    println!();
+
+    let mut optimizer =
+        UcmOptimizationCost::new(initial_model.clone(), points_3d.clone(), points_2d.clone());
+
+    optimizer.linear_estimation()?;
+
+    let start = Instant::now();
+    optimizer.optimize_with_apex(verbose)?;
+    let elapsed = start.elapsed();
+
+    let final_model = UcmModel::new(&nalgebra::DVector::from_vec(vec![
+        optimizer.get_intrinsics().fx,
+        optimizer.get_intrinsics().fy,
+        optimizer.get_intrinsics().cx,
+        optimizer.get_intrinsics().cy,
+        optimizer.get_distortion()[0],
+    ]))?;
+
+    let final_error = util::compute_reprojection_error(Some(&final_model), points_3d, points_2d)?;
+    let improvement = ((initial_rmse - final_error.rmse) / initial_rmse) * 100.0;
+
+    println!(
+        "✅ apex-solver completed in {:.2} ms",
+        elapsed.as_secs_f64() * 1000.0
+    );
+    println!(
+        "   Final RMSE: {:.6} pixels | Improvement: {:.2}%\n",
+        final_error.rmse, improvement
+    );
+
+    Ok(OptimizationResult {
+        optimizer_name: "apex-solver".to_string(),
+        success: true,
+        optimization_time_ms: elapsed.as_secs_f64() * 1000.0,
+        initial_rmse,
+        final_rmse: final_error.rmse,
+        improvement_percent: improvement,
+        final_params: vec![
+            final_model.intrinsics.fx,
+            final_model.intrinsics.fy,
+            final_model.intrinsics.cx,
+            final_model.intrinsics.cy,
+            final_model.alpha,
+        ],
+    })
+}
+
+fn display_ucm_model_params(model: &UcmModel, label: &str) {
+    println!("📷 {} UCM Model Parameters:", label);
+    println!("   fx: {:.6}", model.intrinsics.fx);
+    println!("   fy: {:.6}", model.intrinsics.fy);
+    println!("   cx: {:.6}", model.intrinsics.cx);
+    println!("   cy: {:.6}", model.intrinsics.cy);
+    println!("   alpha: {:.6}", model.alpha);
+    println!();
+}
+
+fn display_ucm_parameter_comparison(
+    reference: &UcmModel,
+    tiny_result: &OptimizationResult,
+    apex_result: &OptimizationResult,
+) {
+    println!("\n📋 PARAMETER COMPARISON");
+    println!("{}", "-".repeat(80));
+
+    let param_names = ["fx", "fy", "cx", "cy", "alpha"];
+    let reference_params = vec![
+        reference.intrinsics.fx,
+        reference.intrinsics.fy,
+        reference.intrinsics.cx,
+        reference.intrinsics.cy,
+        reference.alpha,
+    ];
+
+    println!(
+        "\n┌{0:─<12}┬{0:─<16}┬{0:─<16}┬{0:─<16}┬{0:─<16}┬{0:─<16}┐",
+        ""
+    );
+    println!(
+        "│ {:^10} │ {:^14} │ {:^14} │ {:^14} │ {:^14} │ {:^14} │",
+        "Parameter", "Reference", "tiny-solver", "Δ tiny", "apex-solver", "Δ apex"
+    );
+    println!(
+        "├{0:─<12}┼{0:─<16}┼{0:─<16}┼{0:─<16}┼{0:─<16}┼{0:─<16}┤",
+        ""
+    );
+
+    for i in 0..param_names.len() {
+        let ref_val = reference_params[i];
+        let tiny_val = tiny_result.final_params[i];
+        let apex_val = apex_result.final_params[i];
+        let tiny_diff = (tiny_val - ref_val).abs();
+        let apex_diff = (apex_val - ref_val).abs();
+
+        println!(
+            "│ {:10} │ {:14.6} │ {:14.6} │ {:14.6} │ {:14.6} │ {:14.6} │",
+            param_names[i], ref_val, tiny_val, tiny_diff, apex_val, apex_diff
+        );
+    }
+
+    println!(
+        "└{0:─<12}┴{0:─<16}┴{0:─<16}┴{0:─<16}┴{0:─<16}┴{0:─<16}┘",
+        ""
+    );
+}
 
 // ==================== EUCM COMPARISON ====================
 

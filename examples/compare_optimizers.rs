@@ -545,7 +545,7 @@ fn create_noisy_ucm_model(model: &UcmModel, noise_level: f64) -> UcmModel {
             cy: model.intrinsics.cy - noise_level * 12.0,
         },
         resolution: model.resolution.clone(),
-        alpha: (model.alpha * (1.0 - noise_level * 0.2)).clamp(1e-6, 1.0),
+        alpha: (model.alpha * (1.0 - noise_level * 0.2)).max(1e-6), // Allow alpha > 1.0
     }
 }
 

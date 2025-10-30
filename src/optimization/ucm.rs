@@ -204,7 +204,7 @@ impl Optimizer for UcmOptimizationCost {
             self.model.intrinsics.fy,
             self.model.intrinsics.cx,
             self.model.intrinsics.cy,
-            self.model.alpha.clamp(1e-6, 1.0), // Clamp alpha to valid range
+            self.model.alpha.max(1e-6), // Ensure alpha is positive
         ]);
 
         // Setup initial values with RN manifold (Euclidean space)
@@ -258,7 +258,7 @@ impl Optimizer for UcmOptimizationCost {
         self.model.intrinsics.fy = optimized_params[1];
         self.model.intrinsics.cx = optimized_params[2];
         self.model.intrinsics.cy = optimized_params[3];
-        self.model.alpha = optimized_params[4].clamp(1e-6, 1.0); // Ensure bounds
+        self.model.alpha = optimized_params[4].max(1e-6); // Ensure alpha is positive
 
         // Validate the optimized parameters
         self.model.validate_params()?;
@@ -313,8 +313,9 @@ impl Optimizer for UcmOptimizationCost {
         let num_residuals = self.points2d.ncols() * 2;
         problem.add_residual_block(num_residuals, &["params"], Box::new(cost_function), None);
 
-        // Set parameter bounds for alpha (critical constraint: 0 < alpha <= 1)
-        problem.set_variable_bounds("params", 4, 1e-6, 1.0); // alpha
+        // Set parameter bounds for alpha (must be positive and finite, no strict upper bound)
+        // UCM allows alpha > 1.0 (e.g., reference model has alpha = 1.01674)
+        problem.set_variable_bounds("params", 4, 1e-6, 10.0); // alpha
 
         // Initial parameters
         let initial_params = DVector::from_vec(vec![
@@ -322,7 +323,7 @@ impl Optimizer for UcmOptimizationCost {
             self.model.intrinsics.fy,
             self.model.intrinsics.cx,
             self.model.intrinsics.cy,
-            self.model.alpha.clamp(1e-6, 1.0), // Clamp alpha to valid range
+            self.model.alpha.max(1e-6), // Ensure alpha is positive
         ]);
         let mut initial_values = HashMap::new();
         initial_values.insert("params".to_string(), initial_params);

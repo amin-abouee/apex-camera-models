@@ -18,17 +18,23 @@
 use serde::{Deserialize, Serialize};
 
 pub mod double_sphere;
+pub mod double_sphere_factor;
 pub mod eucm;
+pub mod eucm_factor;
 pub mod kannala_brandt;
-pub mod projection_ds_factor;
+pub mod kannala_brandt_factor;
 pub mod rad_tan;
+pub mod rad_tan_factor;
 pub mod ucm;
 
 pub use double_sphere::DoubleSphereOptimizationCost;
+pub use double_sphere_factor::DoubleSphereProjectionFactor;
 pub use eucm::EucmOptimizationCost;
+pub use eucm_factor::EucmProjectionFactor;
 pub use kannala_brandt::KannalaBrandtOptimizationCost;
-pub use projection_ds_factor::DoubleSphereProjectionFactor;
+pub use kannala_brandt_factor::KannalaBrandtProjectionFactor;
 pub use rad_tan::RadTanOptimizationCost;
+pub use rad_tan_factor::RadTanProjectionFactor;
 pub use ucm::UcmOptimizationCost;
 
 use crate::camera::{CameraModelError, Intrinsics, Resolution};

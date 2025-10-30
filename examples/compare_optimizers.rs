@@ -22,11 +22,11 @@
 //! ```
 
 use apex_camera_models::camera::{
-    CameraModel, DoubleSphereModel, EucmModel, KannalaBrandtModel, RadTanModel, UcmModel,
+    CameraModel, DoubleSphereModel, EucmModel, KannalaBrandtModel, RadTanModel,
 };
 use apex_camera_models::optimization::{
     DoubleSphereOptimizationCost, EucmOptimizationCost, KannalaBrandtOptimizationCost, Optimizer,
-    RadTanOptimizationCost, UcmOptimizationCost,
+    RadTanOptimizationCost,
 };
 use apex_camera_models::util;
 use clap::Parser;
@@ -36,8 +36,9 @@ use std::time::Instant;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// Camera model type: "ds" (Double Sphere), "kb" (Kannala-Brandt), "ucm" (Unified Camera Model), "eucm" (Extended Unified Camera Model), or "radtan" (Radial-Tangential)
-    #[arg(short = 'm', long, value_parser = ["ds", "kb", "ucm", "eucm", "radtan"])]
+    /// Camera model type: "ds" (Double Sphere), "kb" (Kannala-Brandt), "eucm" (Extended Unified Camera Model), or "radtan" (Radial-Tangential)
+    /// Note: UCM is not yet supported in apex-solver comparison
+    #[arg(short = 'm', long, value_parser = ["ds", "kb", "eucm", "radtan"])]
     model: String,
 
     /// Path to the input model YAML file
@@ -77,7 +78,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input_path = cli.input_path.unwrap_or_else(|| match cli.model.as_str() {
         "ds" => "samples/double_sphere.yaml".to_string(),
         "kb" => "samples/kannala_brandt.yaml".to_string(),
-        "ucm" => "samples/ucm.yaml".to_string(),
         "eucm" => "samples/eucm.yaml".to_string(),
         "radtan" => "samples/rad_tan.yaml".to_string(),
         _ => unreachable!(),
@@ -91,7 +91,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match cli.model.as_str() {
             "ds" => "Double Sphere",
             "kb" => "Kannala-Brandt",
-            "ucm" => "Unified Camera Model",
             "eucm" => "Extended Unified Camera Model",
             "radtan" => "Radial-Tangential",
             _ => unreachable!(),
@@ -104,7 +103,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match cli.model.as_str() {
         "ds" => run_ds_comparison(&input_path, cli.num_points, cli.noise_level, cli.verbose),
         "kb" => run_kb_comparison(&input_path, cli.num_points, cli.noise_level, cli.verbose),
-        "ucm" => run_ucm_comparison(&input_path, cli.num_points, cli.noise_level, cli.verbose),
         "eucm" => run_eucm_comparison(&input_path, cli.num_points, cli.noise_level, cli.verbose),
         "radtan" => {
             run_radtan_comparison(&input_path, cli.num_points, cli.noise_level, cli.verbose)
@@ -476,7 +474,10 @@ fn run_kb_apex_solver(
 }
 
 // ==================== UCM COMPARISON ====================
+// NOTE: UCM apex-solver support is not yet implemented
+// Uncomment when UcmProjectionFactor and optimize_with_apex are added
 
+/*
 fn run_ucm_comparison(
     input_path: &str,
     num_points: usize,
@@ -657,6 +658,7 @@ fn run_ucm_apex_solver(
         ],
     })
 }
+*/
 
 // ==================== EUCM COMPARISON ====================
 
@@ -1084,6 +1086,7 @@ fn display_kb_model_params(model: &KannalaBrandtModel, label: &str) {
     );
 }
 
+/*
 fn display_ucm_model_params(model: &UcmModel, label: &str) {
     println!("📐 {} Model Parameters:", label);
     println!(
@@ -1096,6 +1099,7 @@ fn display_ucm_model_params(model: &UcmModel, label: &str) {
         model.resolution.width, model.resolution.height
     );
 }
+*/
 
 fn display_eucm_model_params(model: &EucmModel, label: &str) {
     println!("📐 {} Model Parameters:", label);
@@ -1268,6 +1272,7 @@ fn display_kb_parameter_comparison(
     );
 }
 
+/*
 fn display_ucm_parameter_comparison(
     reference: &UcmModel,
     tiny_result: &OptimizationResult,
@@ -1316,6 +1321,7 @@ fn display_ucm_parameter_comparison(
         ""
     );
 }
+*/
 
 fn display_eucm_parameter_comparison(
     reference: &EucmModel,

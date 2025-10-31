@@ -290,16 +290,18 @@ mod tests {
 
     #[test]
     fn test_factor_creation() {
-        let points_3d = vec![
+        let points_3d_vec = vec![
             Vector3::new(0.0, 0.0, 1.0),
             Vector3::new(0.1, 0.0, 1.0),
             Vector3::new(0.0, 0.1, 1.0),
         ];
-        let points_2d = vec![
+        let points_2d_vec = vec![
             Vector2::new(362.0, 246.0),
             Vector2::new(392.0, 246.0),
             Vector2::new(362.0, 276.0),
         ];
+        let points_3d = Matrix3xX::from_columns(&points_3d_vec);
+        let points_2d = Matrix2xX::from_columns(&points_2d_vec);
 
         let factor = RadTanProjectionFactor::new(points_3d, points_2d);
         assert_eq!(factor.get_dimension(), 6); // 3 points × 2 residuals
@@ -307,8 +309,10 @@ mod tests {
 
     #[test]
     fn test_linearize_dimensions() {
-        let points_3d = vec![Vector3::new(0.0, 0.0, 1.0), Vector3::new(0.1, 0.0, 1.0)];
-        let points_2d = vec![Vector2::new(362.0, 246.0), Vector2::new(392.0, 246.0)];
+        let points_3d_vec = vec![Vector3::new(0.0, 0.0, 1.0), Vector3::new(0.1, 0.0, 1.0)];
+        let points_2d_vec = vec![Vector2::new(362.0, 246.0), Vector2::new(392.0, 246.0)];
+        let points_3d = Matrix3xX::from_columns(&points_3d_vec);
+        let points_2d = Matrix2xX::from_columns(&points_2d_vec);
 
         let factor = RadTanProjectionFactor::new(points_3d, points_2d);
 
@@ -337,8 +341,10 @@ mod tests {
     #[test]
     fn test_residual_computation() {
         // Test with a simple case where 3D point at (0,0,1) should project near (cx,cy)
-        let points_3d = vec![Vector3::new(0.0, 0.0, 1.0)];
-        let points_2d = vec![Vector2::new(362.680, 246.049)];
+        let points_3d_vec = vec![Vector3::new(0.0, 0.0, 1.0)];
+        let points_2d_vec = vec![Vector2::new(362.680, 246.049)];
+        let points_3d = Matrix3xX::from_columns(&points_3d_vec);
+        let points_2d = Matrix2xX::from_columns(&points_2d_vec);
 
         let factor = RadTanProjectionFactor::new(points_3d, points_2d);
 
@@ -364,8 +370,10 @@ mod tests {
 
     #[test]
     fn test_jacobian_non_zero() {
-        let points_3d = vec![Vector3::new(0.1, 0.1, 1.0)];
-        let points_2d = vec![Vector2::new(370.0, 256.0)];
+        let points_3d_vec = vec![Vector3::new(0.1, 0.1, 1.0)];
+        let points_2d_vec = vec![Vector2::new(370.0, 256.0)];
+        let points_3d = Matrix3xX::from_columns(&points_3d_vec);
+        let points_2d = Matrix2xX::from_columns(&points_2d_vec);
 
         let factor = RadTanProjectionFactor::new(points_3d, points_2d);
 
@@ -394,8 +402,10 @@ mod tests {
     #[test]
     #[should_panic(expected = "Number of 3D and 2D points must match")]
     fn test_mismatched_points_panic() {
-        let points_3d = vec![Vector3::new(0.0, 0.0, 1.0)];
-        let points_2d = vec![Vector2::new(362.0, 246.0), Vector2::new(370.0, 256.0)];
+        let points_3d_vec = vec![Vector3::new(0.0, 0.0, 1.0)];
+        let points_2d_vec = vec![Vector2::new(362.0, 246.0), Vector2::new(370.0, 256.0)];
+        let points_3d = Matrix3xX::from_columns(&points_3d_vec);
+        let points_2d = Matrix2xX::from_columns(&points_2d_vec);
 
         RadTanProjectionFactor::new(points_3d, points_2d);
     }

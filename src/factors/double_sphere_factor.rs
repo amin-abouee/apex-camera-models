@@ -251,15 +251,18 @@ mod tests {
 
     #[test]
     fn test_factor_creation() {
-        let mut points_3d = Matrix3xX::zeros(3);
-        points_3d.set_column(0, &Vector3::new(0.0, 0.0, 1.0));
-        points_3d.set_column(1, &Vector3::new(0.1, 0.0, 1.0));
-        points_3d.set_column(2, &Vector3::new(0.0, 0.1, 1.0));
-
-        let mut points_2d = Matrix2xX::zeros(3);
-        points_2d.set_column(0, &Vector2::new(320.0, 240.0));
-        points_2d.set_column(1, &Vector2::new(350.0, 240.0));
-        points_2d.set_column(2, &Vector2::new(320.0, 270.0));
+        let points_3d_vec = vec![
+            Vector3::new(0.0, 0.0, 1.0),
+            Vector3::new(0.1, 0.0, 1.0),
+            Vector3::new(0.0, 0.1, 1.0),
+        ];
+        let points_2d_vec = vec![
+            Vector2::new(320.0, 240.0),
+            Vector2::new(350.0, 240.0),
+            Vector2::new(320.0, 270.0),
+        ];
+        let points_3d = Matrix3xX::from_columns(&points_3d_vec);
+        let points_2d = Matrix2xX::from_columns(&points_2d_vec);
 
         let factor = DoubleSphereProjectionFactor::new(points_3d, points_2d);
         assert_eq!(factor.get_dimension(), 6); // 3 points × 2 residuals
@@ -267,13 +270,10 @@ mod tests {
 
     #[test]
     fn test_linearize_dimensions() {
-        let mut points_3d = Matrix3xX::zeros(2);
-        points_3d.set_column(0, &Vector3::new(0.0, 0.0, 1.0));
-        points_3d.set_column(1, &Vector3::new(0.1, 0.0, 1.0));
-
-        let mut points_2d = Matrix2xX::zeros(2);
-        points_2d.set_column(0, &Vector2::new(320.0, 240.0));
-        points_2d.set_column(1, &Vector2::new(350.0, 240.0));
+        let points_3d_vec = vec![Vector3::new(0.0, 0.0, 1.0), Vector3::new(0.1, 0.0, 1.0)];
+        let points_2d_vec = vec![Vector2::new(320.0, 240.0), Vector2::new(350.0, 240.0)];
+        let points_3d = Matrix3xX::from_columns(&points_3d_vec);
+        let points_2d = Matrix2xX::from_columns(&points_2d_vec);
 
         let factor = DoubleSphereProjectionFactor::new(points_3d, points_2d);
 
@@ -294,8 +294,10 @@ mod tests {
     #[test]
     #[should_panic(expected = "Number of 3D and 2D points must match")]
     fn test_mismatched_points_panic() {
-        let points_3d = Matrix3xX::zeros(1);
-        let points_2d = Matrix2xX::zeros(2);
+        let points_3d_vec = vec![Vector3::new(0.0, 0.0, 1.0)];
+        let points_2d_vec = vec![Vector2::new(320.0, 240.0), Vector2::new(350.0, 240.0)];
+        let points_3d = Matrix3xX::from_columns(&points_3d_vec);
+        let points_2d = Matrix2xX::from_columns(&points_2d_vec);
 
         DoubleSphereProjectionFactor::new(points_3d, points_2d);
     }

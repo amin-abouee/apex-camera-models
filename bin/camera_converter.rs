@@ -44,13 +44,18 @@ use apex_camera_models::camera::{
     CameraModel, CameraModelEnum, DoubleSphereModel, EucmModel, KannalaBrandtModel, PinholeModel,
     RadTanModel, UcmModel,
 };
-use apex_camera_models::optimization::{
-    DoubleSphereOptimizationCost, EucmOptimizationCost, KannalaBrandtOptimizationCost, Optimizer,
-    RadTanOptimizationCost, UcmOptimizationCost,
+use apex_camera_models::factors::{
+    DoubleSphereProjectionFactor, EucmProjectionFactor, KannalaBrandtProjectionFactor,
+    RadTanProjectionFactor, UcmProjectionFactor,
 };
 use apex_camera_models::util::{self, ConversionMetrics, ValidationResults};
+use apex_solver::core::problem::{Problem, VariableEnum};
+use apex_solver::manifold::ManifoldType;
+use apex_solver::optimizer::levenberg_marquardt::{LevenbergMarquardt, LevenbergMarquardtConfig};
 use clap::Parser;
 use log::info;
+use nalgebra::DVector;
+use std::collections::HashMap;
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -330,7 +335,7 @@ fn convert_to_double_sphere(
     let start_time = Instant::now();
 
     // Initialize Double Sphere model
-    let initial_model = DoubleSphereModel {
+    let mut model = DoubleSphereModel {
         intrinsics: input_model.get_intrinsics(),
         resolution: input_model.get_resolution(),
         alpha: 0.5,
@@ -338,42 +343,86 @@ fn convert_to_double_sphere(
     };
 
     // Compute initial reprojection error
-    let initial_error =
-        util::compute_reprojection_error(Some(&initial_model), points_3d, points_2d)?;
-
-    let mut optimizer =
-        DoubleSphereOptimizationCost::new(initial_model, points_3d.clone(), points_2d.clone());
+    let initial_error = util::compute_reprojection_error(Some(&model), points_3d, points_2d)?;
 
     // Linear estimation
-    optimizer.linear_estimation()?;
+    model.linear_estimation(points_3d, points_2d)?;
+
+    // Create projection factor
+    let factor = DoubleSphereProjectionFactor::new(points_3d.clone(), points_2d.clone());
+
+    // Set up apex-solver problem
+    let mut problem = Problem::new();
+    problem.add_residual_block(&["params"], Box::new(factor), None);
+
+    // Set initial parameter values
+    let initial_params = DVector::from_vec(vec![
+        model.intrinsics.fx,
+        model.intrinsics.fy,
+        model.intrinsics.cx,
+        model.intrinsics.cy,
+        model.alpha,
+        model.xi,
+    ]);
+
+    // Set parameter bounds
+    problem.set_variable_bounds("params", 0, 1.0, 2000.0); // fx
+    problem.set_variable_bounds("params", 1, 1.0, 2000.0); // fy
+    problem.set_variable_bounds("params", 2, 0.0, 2000.0); // cx
+    problem.set_variable_bounds("params", 3, 0.0, 2000.0); // cy
+    problem.set_variable_bounds("params", 4, 1e-6, 1.0); // alpha
+    problem.set_variable_bounds("params", 5, -5.0, 5.0); // xi
+
+    // Set up initial values with RN manifold (Euclidean space)
+    let mut initial_values = HashMap::new();
+    initial_values.insert("params".to_string(), (ManifoldType::RN, initial_params));
 
     // NON-LINEAR OPTIMIZATION WITH APEX-SOLVER (ANALYTICAL JACOBIANS)
     info!("🚀 Running apex-solver optimization for Double Sphere...");
-    let optimization_result = optimizer.optimize_with_apex(false);
+
+    // Configure and run optimizer
+    let config = LevenbergMarquardtConfig::new()
+        .with_max_iterations(100)
+        .with_cost_tolerance(1e-6)
+        .with_parameter_tolerance(1e-8)
+        .with_gradient_tolerance(1e-6)
+        .with_verbose(false);
+
+    let mut solver = LevenbergMarquardt::with_config(config);
+
+    // Run optimization
+    let optimization_result = solver.optimize(&problem, &initial_values);
 
     let optimization_time = start_time.elapsed().as_millis() as f64;
 
-    // Get final parameters
-    let final_intrinsics = optimizer.get_intrinsics();
-    let final_distortion = optimizer.get_distortion();
+    // Extract optimized parameters
+    let convergence_status = match &optimization_result {
+        Ok(result) => {
+            let optimized_var = result
+                .parameters
+                .get("params")
+                .ok_or("Variable not found")?;
+            let optimized_params = match optimized_var {
+                VariableEnum::Rn(rn_var) => rn_var.value.to_vector(),
+                _ => return Err("Unexpected variable type".into()),
+            };
 
-    // Compute reprojection error
-    let final_model = DoubleSphereModel {
-        intrinsics: final_intrinsics.clone(),
-        resolution: optimizer.get_resolution(),
-        alpha: final_distortion[0],
-        xi: final_distortion[1],
-    };
+            // Update model with optimized parameters
+            model.intrinsics.fx = optimized_params[0];
+            model.intrinsics.fy = optimized_params[1];
+            model.intrinsics.cx = optimized_params[2];
+            model.intrinsics.cy = optimized_params[3];
+            model.alpha = optimized_params[4];
+            model.xi = optimized_params[5];
 
-    let reprojection_result =
-        util::compute_reprojection_error(Some(&final_model), points_3d, points_2d)?;
-
-    let convergence_status = match optimization_result {
-        Ok(()) => "Converged (apex-solver)".to_string(),
+            "Converged (apex-solver)".to_string()
+        }
         Err(_) => "Linear Only".to_string(),
     };
 
-    let validation_results = util::validate_conversion_accuracy(&final_model, input_model)
+    let reprojection_result = util::compute_reprojection_error(Some(&model), points_3d, points_2d)?;
+
+    let validation_results = util::validate_conversion_accuracy(&model, input_model)
         .unwrap_or_else(|_| ValidationResults {
             center_error: f64::NAN,
             near_center_error: f64::NAN,
@@ -389,7 +438,7 @@ fn convert_to_double_sphere(
     // Compute image quality metrics
     let image_quality = util::compute_image_quality_metrics(
         input_model,
-        &final_model,
+        &model,
         points_3d,
         "double_sphere_apex",
         reference_image,
@@ -398,7 +447,7 @@ fn convert_to_double_sphere(
     .ok();
 
     let metrics = ConversionMetrics {
-        model: CameraModelEnum::DoubleSphere(final_model),
+        model: CameraModelEnum::DoubleSphere(model),
         model_name: "Double Sphere (apex-solver)".to_string(),
         final_reprojection_error: reprojection_result,
         initial_reprojection_error: initial_error,
@@ -422,48 +471,97 @@ fn convert_to_kannala_brandt(
     let start_time = Instant::now();
 
     // Initialize Kannala-Brandt model
-    let initial_model = KannalaBrandtModel {
+    let mut model = KannalaBrandtModel {
         intrinsics: input_model.get_intrinsics(),
         resolution: input_model.get_resolution(),
         distortions: [0.0; 4], // k1, k2, k3, k4
     };
 
     // Compute initial reprojection error
-    let initial_error =
-        util::compute_reprojection_error(Some(&initial_model), points_3d, points_2d)?;
+    let initial_error = util::compute_reprojection_error(Some(&model), points_3d, points_2d)?;
 
-    let mut optimizer =
-        KannalaBrandtOptimizationCost::new(initial_model, points_3d.clone(), points_2d.clone());
+    // Linear estimation
+    model.linear_estimation(points_3d, points_2d)?;
 
-    // Perform linear estimation first
-    optimizer.linear_estimation()?;
+    // Create projection factor
+    let factor = KannalaBrandtProjectionFactor::new(points_3d.clone(), points_2d.clone());
+
+    // Set up apex-solver problem
+    let mut problem = Problem::new();
+    problem.add_residual_block(&["params"], Box::new(factor), None);
+
+    // Set initial parameter values
+    let initial_params = DVector::from_vec(vec![
+        model.intrinsics.fx,
+        model.intrinsics.fy,
+        model.intrinsics.cx,
+        model.intrinsics.cy,
+        model.distortions[0],
+        model.distortions[1],
+        model.distortions[2],
+        model.distortions[3],
+    ]);
+
+    // Set parameter bounds
+    problem.set_variable_bounds("params", 0, 1.0, 2000.0); // fx
+    problem.set_variable_bounds("params", 1, 1.0, 2000.0); // fy
+    problem.set_variable_bounds("params", 2, 0.0, 2000.0); // cx
+    problem.set_variable_bounds("params", 3, 0.0, 2000.0); // cy
+    problem.set_variable_bounds("params", 4, -5.0, 5.0); // k1
+    problem.set_variable_bounds("params", 5, -5.0, 5.0); // k2
+    problem.set_variable_bounds("params", 6, -5.0, 5.0); // k3
+    problem.set_variable_bounds("params", 7, -5.0, 5.0); // k4
+
+    // Set up initial values with RN manifold (Euclidean space)
+    let mut initial_values = HashMap::new();
+    initial_values.insert("params".to_string(), (ManifoldType::RN, initial_params));
 
     // NON-LINEAR OPTIMIZATION WITH APEX-SOLVER (ANALYTICAL JACOBIANS)
     info!("🚀 Running apex-solver optimization for Kannala-Brandt...");
-    let optimization_result = optimizer.optimize_with_apex(false);
+
+    // Configure and run optimizer
+    let config = LevenbergMarquardtConfig::new()
+        .with_max_iterations(100)
+        .with_cost_tolerance(1e-6)
+        .with_parameter_tolerance(1e-8)
+        .with_gradient_tolerance(1e-6)
+        .with_verbose(false);
+
+    let mut solver = LevenbergMarquardt::with_config(config);
+    let optimization_result = solver.optimize(&problem, &initial_values);
 
     let optimization_time = start_time.elapsed().as_millis() as f64;
 
-    // Get final parameters
-    let final_intrinsics = optimizer.get_intrinsics();
-    let final_distortion = optimizer.get_distortion();
+    // Extract optimized parameters
+    let convergence_status = match &optimization_result {
+        Ok(result) => {
+            let optimized_var = result
+                .parameters
+                .get("params")
+                .ok_or("Variable not found")?;
+            let optimized_params = match optimized_var {
+                VariableEnum::Rn(rn_var) => rn_var.value.to_vector(),
+                _ => return Err("Unexpected variable type".into()),
+            };
 
-    // Compute reprojection error
-    let final_model = KannalaBrandtModel {
-        intrinsics: final_intrinsics.clone(),
-        resolution: optimizer.get_resolution(),
-        distortions: [
-            final_distortion[0],
-            final_distortion[1],
-            final_distortion[2],
-            final_distortion[3],
-        ],
+            // Update model with optimized parameters
+            model.intrinsics.fx = optimized_params[0];
+            model.intrinsics.fy = optimized_params[1];
+            model.intrinsics.cx = optimized_params[2];
+            model.intrinsics.cy = optimized_params[3];
+            model.distortions[0] = optimized_params[4];
+            model.distortions[1] = optimized_params[5];
+            model.distortions[2] = optimized_params[6];
+            model.distortions[3] = optimized_params[7];
+
+            "Converged (apex-solver)".to_string()
+        }
+        Err(_) => "Linear Only".to_string(),
     };
 
-    let reprojection_result =
-        util::compute_reprojection_error(Some(&final_model), points_3d, points_2d)?;
+    let reprojection_result = util::compute_reprojection_error(Some(&model), points_3d, points_2d)?;
 
-    let validation_results = util::validate_conversion_accuracy(&final_model, input_model)
+    let validation_results = util::validate_conversion_accuracy(&model, input_model)
         .unwrap_or_else(|_| ValidationResults {
             center_error: f64::NAN,
             near_center_error: f64::NAN,
@@ -476,15 +574,10 @@ fn convert_to_kannala_brandt(
             region_data: vec![],
         });
 
-    let convergence_status = match optimization_result {
-        Ok(()) => "Converged (apex-solver)".to_string(),
-        Err(_) => "Linear Only".to_string(),
-    };
-
     // Compute image quality metrics
     let image_quality = util::compute_image_quality_metrics(
         input_model,
-        &final_model,
+        &model,
         points_3d,
         "kannala_brandt_apex",
         reference_image,
@@ -493,7 +586,7 @@ fn convert_to_kannala_brandt(
     .ok();
 
     let metrics = ConversionMetrics {
-        model: CameraModelEnum::KannalaBrandt(final_model),
+        model: CameraModelEnum::KannalaBrandt(model),
         model_name: "Kannala-Brandt (apex-solver)".to_string(),
         final_reprojection_error: reprojection_result,
         initial_reprojection_error: initial_error,
@@ -517,54 +610,100 @@ fn convert_to_rad_tan(
     let start_time = Instant::now();
 
     // Initialize RadTan model
-    let initial_model = RadTanModel {
+    let mut model = RadTanModel {
         intrinsics: input_model.get_intrinsics(),
         resolution: input_model.get_resolution(),
         distortions: [0.0; 5], // k1, k2, p1, p2, k3
     };
 
     // Compute initial reprojection error
-    let initial_error =
-        util::compute_reprojection_error(Some(&initial_model), points_3d, points_2d)?;
-
-    let mut optimizer =
-        RadTanOptimizationCost::new(initial_model, points_3d.clone(), points_2d.clone());
+    let initial_error = util::compute_reprojection_error(Some(&model), points_3d, points_2d)?;
 
     // Linear estimation
-    optimizer.linear_estimation()?;
+    model.linear_estimation(points_3d, points_2d)?;
+
+    // Create projection factor
+    let factor = RadTanProjectionFactor::new(points_3d.clone(), points_2d.clone());
+
+    // Set up apex-solver problem
+    let mut problem = Problem::new();
+    problem.add_residual_block(&["params"], Box::new(factor), None);
+
+    // Set initial parameter values
+    let initial_params = DVector::from_vec(vec![
+        model.intrinsics.fx,
+        model.intrinsics.fy,
+        model.intrinsics.cx,
+        model.intrinsics.cy,
+        model.distortions[0],
+        model.distortions[1],
+        model.distortions[2],
+        model.distortions[3],
+        model.distortions[4],
+    ]);
+
+    // Set parameter bounds
+    problem.set_variable_bounds("params", 0, 1.0, 2000.0); // fx
+    problem.set_variable_bounds("params", 1, 1.0, 2000.0); // fy
+    problem.set_variable_bounds("params", 2, 0.0, 2000.0); // cx
+    problem.set_variable_bounds("params", 3, 0.0, 2000.0); // cy
+    problem.set_variable_bounds("params", 4, -5.0, 5.0); // k1
+    problem.set_variable_bounds("params", 5, -5.0, 5.0); // k2
+    problem.set_variable_bounds("params", 6, -1.0, 1.0); // p1
+    problem.set_variable_bounds("params", 7, -1.0, 1.0); // p2
+    problem.set_variable_bounds("params", 8, -5.0, 5.0); // k3
+
+    // Set up initial values with RN manifold (Euclidean space)
+    let mut initial_values = HashMap::new();
+    initial_values.insert("params".to_string(), (ManifoldType::RN, initial_params));
 
     // NON-LINEAR OPTIMIZATION WITH APEX-SOLVER (ANALYTICAL JACOBIANS)
     info!("🚀 Running apex-solver optimization for RadTan...");
-    let optimization_result = optimizer.optimize_with_apex(false);
+
+    // Configure and run optimizer
+    let config = LevenbergMarquardtConfig::new()
+        .with_max_iterations(100)
+        .with_cost_tolerance(1e-6)
+        .with_parameter_tolerance(1e-8)
+        .with_gradient_tolerance(1e-6)
+        .with_verbose(false);
+
+    let mut solver = LevenbergMarquardt::with_config(config);
+    let optimization_result = solver.optimize(&problem, &initial_values);
 
     let optimization_time = start_time.elapsed().as_millis() as f64;
 
-    // Get final parameters
-    let final_intrinsics = optimizer.get_intrinsics();
-    let final_distortion = optimizer.get_distortion();
+    // Extract optimized parameters
+    let convergence_status = match &optimization_result {
+        Ok(result) => {
+            let optimized_var = result
+                .parameters
+                .get("params")
+                .ok_or("Variable not found")?;
+            let optimized_params = match optimized_var {
+                VariableEnum::Rn(rn_var) => rn_var.value.to_vector(),
+                _ => return Err("Unexpected variable type".into()),
+            };
 
-    // Compute reprojection error
-    let final_model = RadTanModel {
-        intrinsics: final_intrinsics.clone(),
-        resolution: optimizer.get_resolution(),
-        distortions: [
-            final_distortion[0],
-            final_distortion[1],
-            final_distortion[2],
-            final_distortion[3],
-            final_distortion[4],
-        ],
-    };
+            // Update model with optimized parameters
+            model.intrinsics.fx = optimized_params[0];
+            model.intrinsics.fy = optimized_params[1];
+            model.intrinsics.cx = optimized_params[2];
+            model.intrinsics.cy = optimized_params[3];
+            model.distortions[0] = optimized_params[4];
+            model.distortions[1] = optimized_params[5];
+            model.distortions[2] = optimized_params[6];
+            model.distortions[3] = optimized_params[7];
+            model.distortions[4] = optimized_params[8];
 
-    let reprojection_result =
-        util::compute_reprojection_error(Some(&final_model), points_3d, points_2d)?;
-
-    let convergence_status = match optimization_result {
-        Ok(()) => "Converged (apex-solver)".to_string(),
+            "Converged (apex-solver)".to_string()
+        }
         Err(_) => "Linear Only".to_string(),
     };
 
-    let validation_results = util::validate_conversion_accuracy(&final_model, input_model)
+    let reprojection_result = util::compute_reprojection_error(Some(&model), points_3d, points_2d)?;
+
+    let validation_results = util::validate_conversion_accuracy(&model, input_model)
         .unwrap_or_else(|_| ValidationResults {
             center_error: f64::NAN,
             near_center_error: f64::NAN,
@@ -580,7 +719,7 @@ fn convert_to_rad_tan(
     // Compute image quality metrics
     let image_quality = util::compute_image_quality_metrics(
         input_model,
-        &final_model,
+        &model,
         points_3d,
         "radial_tangential_apex",
         reference_image,
@@ -589,7 +728,7 @@ fn convert_to_rad_tan(
     .ok();
 
     let metrics = ConversionMetrics {
-        model: CameraModelEnum::RadTan(final_model),
+        model: CameraModelEnum::RadTan(model),
         model_name: "Radial-Tangential (apex-solver)".to_string(),
         final_reprojection_error: reprojection_result,
         initial_reprojection_error: initial_error,
@@ -613,48 +752,88 @@ fn convert_to_ucm(
     let start_time = Instant::now();
 
     // Initialize UCM model
-    let initial_model = UcmModel {
+    let mut model = UcmModel {
         intrinsics: input_model.get_intrinsics(),
         resolution: input_model.get_resolution(),
         alpha: 0.5, // Initial guess
     };
 
     // Compute initial reprojection error
-    let initial_error =
-        util::compute_reprojection_error(Some(&initial_model), points_3d, points_2d)?;
-
-    let mut optimizer =
-        UcmOptimizationCost::new(initial_model, points_3d.clone(), points_2d.clone());
+    let initial_error = util::compute_reprojection_error(Some(&model), points_3d, points_2d)?;
 
     // Linear estimation
-    optimizer.linear_estimation()?;
+    model.linear_estimation(points_3d, points_2d)?;
+
+    // Create projection factor
+    let factor = UcmProjectionFactor::new(points_3d.clone(), points_2d.clone());
+
+    // Set up apex-solver problem
+    let mut problem = Problem::new();
+    problem.add_residual_block(&["params"], Box::new(factor), None);
+
+    // Set initial parameter values
+    let initial_params = DVector::from_vec(vec![
+        model.intrinsics.fx,
+        model.intrinsics.fy,
+        model.intrinsics.cx,
+        model.intrinsics.cy,
+        model.alpha,
+    ]);
+
+    // Set parameter bounds
+    problem.set_variable_bounds("params", 0, 1.0, 2000.0); // fx
+    problem.set_variable_bounds("params", 1, 1.0, 2000.0); // fy
+    problem.set_variable_bounds("params", 2, 0.0, 2000.0); // cx
+    problem.set_variable_bounds("params", 3, 0.0, 2000.0); // cy
+    problem.set_variable_bounds("params", 4, 1e-6, 10.0); // alpha
+
+    // Set up initial values with RN manifold (Euclidean space)
+    let mut initial_values = HashMap::new();
+    initial_values.insert("params".to_string(), (ManifoldType::RN, initial_params));
 
     // NON-LINEAR OPTIMIZATION WITH APEX-SOLVER (ANALYTICAL JACOBIANS)
     info!("🚀 Running apex-solver optimization for UCM...");
-    let optimization_result = optimizer.optimize_with_apex(false);
+
+    // Configure and run optimizer
+    let config = LevenbergMarquardtConfig::new()
+        .with_max_iterations(100)
+        .with_cost_tolerance(1e-6)
+        .with_parameter_tolerance(1e-8)
+        .with_gradient_tolerance(1e-6)
+        .with_verbose(false);
+
+    let mut solver = LevenbergMarquardt::with_config(config);
+    let optimization_result = solver.optimize(&problem, &initial_values);
 
     let optimization_time = start_time.elapsed().as_millis() as f64;
 
-    // Get final parameters
-    let final_intrinsics = optimizer.get_intrinsics();
-    let final_distortion = optimizer.get_distortion();
+    // Extract optimized parameters
+    let convergence_status = match &optimization_result {
+        Ok(result) => {
+            let optimized_var = result
+                .parameters
+                .get("params")
+                .ok_or("Variable not found")?;
+            let optimized_params = match optimized_var {
+                VariableEnum::Rn(rn_var) => rn_var.value.to_vector(),
+                _ => return Err("Unexpected variable type".into()),
+            };
 
-    // Compute reprojection error
-    let final_model = UcmModel {
-        intrinsics: final_intrinsics.clone(),
-        resolution: optimizer.get_resolution(),
-        alpha: final_distortion[0],
-    };
+            // Update model with optimized parameters
+            model.intrinsics.fx = optimized_params[0];
+            model.intrinsics.fy = optimized_params[1];
+            model.intrinsics.cx = optimized_params[2];
+            model.intrinsics.cy = optimized_params[3];
+            model.alpha = optimized_params[4];
 
-    let reprojection_result =
-        util::compute_reprojection_error(Some(&final_model), points_3d, points_2d)?;
-
-    let convergence_status = match optimization_result {
-        Ok(()) => "Converged (apex-solver)".to_string(),
+            "Converged (apex-solver)".to_string()
+        }
         Err(_) => "Linear Only".to_string(),
     };
 
-    let validation_results = util::validate_conversion_accuracy(&final_model, input_model)
+    let reprojection_result = util::compute_reprojection_error(Some(&model), points_3d, points_2d)?;
+
+    let validation_results = util::validate_conversion_accuracy(&model, input_model)
         .unwrap_or_else(|_| ValidationResults {
             center_error: f64::NAN,
             near_center_error: f64::NAN,
@@ -670,7 +849,7 @@ fn convert_to_ucm(
     // Compute image quality metrics
     let image_quality = util::compute_image_quality_metrics(
         input_model,
-        &final_model,
+        &model,
         points_3d,
         "unified_camera_model_apex",
         reference_image,
@@ -679,7 +858,7 @@ fn convert_to_ucm(
     .ok();
 
     let metrics = ConversionMetrics {
-        model: CameraModelEnum::Ucm(final_model),
+        model: CameraModelEnum::Ucm(model),
         model_name: "Unified Camera Model (apex-solver)".to_string(),
         final_reprojection_error: reprojection_result,
         initial_reprojection_error: initial_error,
@@ -703,7 +882,7 @@ fn convert_to_eucm(
     let start_time = Instant::now();
 
     // Initialize EUCM model
-    let initial_model = EucmModel {
+    let mut model = EucmModel {
         intrinsics: input_model.get_intrinsics(),
         resolution: input_model.get_resolution(),
         alpha: 0.5, // Initial guess
@@ -711,42 +890,84 @@ fn convert_to_eucm(
     };
 
     // Compute initial reprojection error
-    let initial_error =
-        util::compute_reprojection_error(Some(&initial_model), points_3d, points_2d)?;
-
-    let mut optimizer =
-        EucmOptimizationCost::new(initial_model, points_3d.clone(), points_2d.clone());
+    let initial_error = util::compute_reprojection_error(Some(&model), points_3d, points_2d)?;
 
     // Linear estimation
-    optimizer.linear_estimation()?;
+    model.linear_estimation(points_3d, points_2d)?;
+
+    // Create projection factor
+    let factor = EucmProjectionFactor::new(points_3d.clone(), points_2d.clone());
+
+    // Set up apex-solver problem
+    let mut problem = Problem::new();
+    problem.add_residual_block(&["params"], Box::new(factor), None);
+
+    // Set initial parameter values
+    let initial_params = DVector::from_vec(vec![
+        model.intrinsics.fx,
+        model.intrinsics.fy,
+        model.intrinsics.cx,
+        model.intrinsics.cy,
+        model.alpha,
+        model.beta,
+    ]);
+
+    // Set parameter bounds
+    problem.set_variable_bounds("params", 0, 1.0, 2000.0); // fx
+    problem.set_variable_bounds("params", 1, 1.0, 2000.0); // fy
+    problem.set_variable_bounds("params", 2, 0.0, 2000.0); // cx
+    problem.set_variable_bounds("params", 3, 0.0, 2000.0); // cy
+    problem.set_variable_bounds("params", 4, 1e-6, 1.0); // alpha
+    problem.set_variable_bounds("params", 5, 1e-6, 5.0); // beta
+
+    // Set up initial values with RN manifold (Euclidean space)
+    let mut initial_values = HashMap::new();
+    initial_values.insert("params".to_string(), (ManifoldType::RN, initial_params));
 
     // NON-LINEAR OPTIMIZATION WITH APEX-SOLVER (ANALYTICAL JACOBIANS)
     info!("🚀 Running apex-solver optimization for EUCM...");
-    let optimization_result = optimizer.optimize_with_apex(false);
+
+    // Configure and run optimizer
+    let config = LevenbergMarquardtConfig::new()
+        .with_max_iterations(100)
+        .with_cost_tolerance(1e-6)
+        .with_parameter_tolerance(1e-8)
+        .with_gradient_tolerance(1e-6)
+        .with_verbose(false);
+
+    let mut solver = LevenbergMarquardt::with_config(config);
+    let optimization_result = solver.optimize(&problem, &initial_values);
 
     let optimization_time = start_time.elapsed().as_millis() as f64;
 
-    // Get final parameters
-    let final_intrinsics = optimizer.get_intrinsics();
-    let final_distortion = optimizer.get_distortion();
+    // Extract optimized parameters
+    let convergence_status = match &optimization_result {
+        Ok(result) => {
+            let optimized_var = result
+                .parameters
+                .get("params")
+                .ok_or("Variable not found")?;
+            let optimized_params = match optimized_var {
+                VariableEnum::Rn(rn_var) => rn_var.value.to_vector(),
+                _ => return Err("Unexpected variable type".into()),
+            };
 
-    // Compute reprojection error
-    let final_model = EucmModel {
-        intrinsics: final_intrinsics.clone(),
-        resolution: optimizer.get_resolution(),
-        alpha: final_distortion[0],
-        beta: final_distortion[1],
-    };
+            // Update model with optimized parameters
+            model.intrinsics.fx = optimized_params[0];
+            model.intrinsics.fy = optimized_params[1];
+            model.intrinsics.cx = optimized_params[2];
+            model.intrinsics.cy = optimized_params[3];
+            model.alpha = optimized_params[4];
+            model.beta = optimized_params[5];
 
-    let reprojection_result =
-        util::compute_reprojection_error(Some(&final_model), points_3d, points_2d)?;
-
-    let convergence_status = match optimization_result {
-        Ok(()) => "Converged (apex-solver)".to_string(),
+            "Converged (apex-solver)".to_string()
+        }
         Err(_) => "Linear Only".to_string(),
     };
 
-    let validation_results = util::validate_conversion_accuracy(&final_model, input_model)
+    let reprojection_result = util::compute_reprojection_error(Some(&model), points_3d, points_2d)?;
+
+    let validation_results = util::validate_conversion_accuracy(&model, input_model)
         .unwrap_or_else(|_| ValidationResults {
             center_error: f64::NAN,
             near_center_error: f64::NAN,
@@ -762,7 +983,7 @@ fn convert_to_eucm(
     // Compute image quality metrics
     let image_quality = util::compute_image_quality_metrics(
         input_model,
-        &final_model,
+        &model,
         points_3d,
         "extended_unified_camera_model_apex",
         reference_image,
@@ -771,7 +992,7 @@ fn convert_to_eucm(
     .ok();
 
     let metrics = ConversionMetrics {
-        model: CameraModelEnum::Eucm(final_model),
+        model: CameraModelEnum::Eucm(model),
         model_name: "Extended Unified Camera Model (apex-solver)".to_string(),
         final_reprojection_error: reprojection_result,
         initial_reprojection_error: initial_error,

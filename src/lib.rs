@@ -13,7 +13,6 @@
 //! the tiny-solver optimization framework.
 
 pub mod camera;
-pub mod optimization;
 pub mod factors;
 pub mod util;
 
@@ -23,10 +22,10 @@ pub use camera::{
     PinholeModel, RadTanModel, Resolution, UcmModel,
 };
 
-pub use optimization::{
-    DoubleSphereOptimizationCost, EucmOptimizationCost, KannalaBrandtOptimizationCost, Optimizer,
-    RadTanOptimizationCost, UcmOptimizationCost,
-};
+// pub use optimization::{
+//     DoubleSphereOptimizationCost, EucmOptimizationCost, KannalaBrandtOptimizationCost, Optimizer,
+//     RadTanOptimizationCost, UcmOptimizationCost,
+// };
 
 pub use factors::{
     DoubleSphereProjectionFactor, EucmProjectionFactor, KannalaBrandtProjectionFactor,

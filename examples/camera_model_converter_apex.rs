@@ -362,7 +362,7 @@ fn convert_to_double_sphere(
 
     // NON-LINEAR OPTIMIZATION WITH APEX-SOLVER (ANALYTICAL JACOBIANS)
     info!("🚀 Running apex-solver optimization for Double Sphere...");
-    let optimization_result = optimizer.optimize_with_apex(true);
+    let optimization_result = optimizer.optimize_with_apex(false);
 
     let optimization_time = start_time.elapsed().as_millis() as f64;
 
@@ -453,7 +453,7 @@ fn convert_to_kannala_brandt(
 
     // NON-LINEAR OPTIMIZATION WITH APEX-SOLVER (ANALYTICAL JACOBIANS)
     info!("🚀 Running apex-solver optimization for Kannala-Brandt...");
-    let optimization_result = optimizer.optimize_with_apex(true);
+    let optimization_result = optimizer.optimize_with_apex(false);
 
     let optimization_time = start_time.elapsed().as_millis() as f64;
 
@@ -548,7 +548,7 @@ fn convert_to_rad_tan(
 
     // NON-LINEAR OPTIMIZATION WITH APEX-SOLVER (ANALYTICAL JACOBIANS)
     info!("🚀 Running apex-solver optimization for RadTan...");
-    let optimization_result = optimizer.optimize_with_apex(true);
+    let optimization_result = optimizer.optimize_with_apex(false);
 
     let optimization_time = start_time.elapsed().as_millis() as f64;
 
@@ -644,7 +644,7 @@ fn convert_to_ucm(
 
     // NON-LINEAR OPTIMIZATION WITH APEX-SOLVER (ANALYTICAL JACOBIANS)
     info!("🚀 Running apex-solver optimization for UCM...");
-    let optimization_result = optimizer.optimize_with_apex(true);
+    let optimization_result = optimizer.optimize_with_apex(false);
 
     let optimization_time = start_time.elapsed().as_millis() as f64;
 
@@ -734,7 +734,7 @@ fn convert_to_eucm(
 
     // NON-LINEAR OPTIMIZATION WITH APEX-SOLVER (ANALYTICAL JACOBIANS)
     info!("🚀 Running apex-solver optimization for EUCM...");
-    let optimization_result = optimizer.optimize_with_apex(true);
+    let optimization_result = optimizer.optimize_with_apex(false);
 
     let optimization_time = start_time.elapsed().as_millis() as f64;
 

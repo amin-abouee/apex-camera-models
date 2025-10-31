@@ -14,6 +14,7 @@
 
 pub mod camera;
 pub mod optimization;
+pub mod factors;
 pub mod util;
 
 // Re-export commonly used types
@@ -25,4 +26,9 @@ pub use camera::{
 pub use optimization::{
     DoubleSphereOptimizationCost, EucmOptimizationCost, KannalaBrandtOptimizationCost, Optimizer,
     RadTanOptimizationCost, UcmOptimizationCost,
+};
+
+pub use factors::{
+    DoubleSphereProjectionFactor, EucmProjectionFactor, KannalaBrandtProjectionFactor,
+    RadTanProjectionFactor, UcmProjectionFactor,
 };

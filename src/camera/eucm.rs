@@ -195,6 +195,94 @@ impl EucmModel {
         }
         condition
     }
+
+    /// Performs linear estimation to initialize distortion parameters from point correspondences.
+    ///
+    /// This method estimates the `alpha` parameter using a linear least squares approach
+    /// given 3D-2D point correspondences. The `beta` parameter is fixed to 1.0.
+    /// It assumes the intrinsic parameters (fx, fy, cx, cy) are already set.
+    ///
+    /// # Arguments
+    ///
+    /// * `points_3d`: Matrix3xX<f64> - 3D points in camera coordinates (each column is a point)
+    /// * `points_2d`: Matrix2xX<f64> - Corresponding 2D points in image coordinates
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success or a `CameraModelError` if the estimation fails.
+    pub fn linear_estimation(
+        &mut self,
+        points_3d: &nalgebra::Matrix3xX<f64>,
+        points_2d: &nalgebra::Matrix2xX<f64>,
+    ) -> Result<(), CameraModelError> {
+        if points_2d.ncols() != points_3d.ncols() {
+            return Err(CameraModelError::InvalidParams(
+                "Number of 2D and 3D points must match".to_string(),
+            ));
+        }
+
+        let num_points = points_2d.ncols();
+        if num_points < 1 {
+            return Err(CameraModelError::InvalidParams(
+                "Need at least 1 point for EUCM linear estimation".to_string(),
+            ));
+        }
+
+        // Set beta to 1.0 (following reference implementation)
+        self.beta = 1.0;
+
+        // Set up the linear system to solve for alpha only
+        let mut a = nalgebra::DMatrix::zeros(num_points * 2, 1);
+        let mut b = nalgebra::DVector::zeros(num_points * 2);
+
+        for i in 0..num_points {
+            let x = points_3d[(0, i)];
+            let y = points_3d[(1, i)];
+            let z = points_3d[(2, i)];
+            let u = points_2d[(0, i)];
+            let v = points_2d[(1, i)];
+
+            let d = (x * x + y * y + z * z).sqrt();
+            let u_cx = u - self.intrinsics.cx;
+            let v_cy = v - self.intrinsics.cy;
+
+            a[(i * 2, 0)] = u_cx * (d - z);
+            a[(i * 2 + 1, 0)] = v_cy * (d - z);
+
+            b[i * 2] = self.intrinsics.fx * x - u_cx * z;
+            b[i * 2 + 1] = self.intrinsics.fy * y - v_cy * z;
+        }
+
+        // Solve the linear system using SVD
+        let svd = a.svd(true, true);
+        let solution = match svd.solve(&b, 1e-10) {
+            Ok(sol) => sol,
+            Err(err_msg) => {
+                return Err(CameraModelError::NumericalError(err_msg.to_string()));
+            }
+        };
+
+        self.alpha = solution[0];
+
+        info!(
+            "EUCM linear estimation results: alpha = {}, beta = {} (fixed)",
+            self.alpha, self.beta
+        );
+
+        // Clamp alpha to valid range if needed
+        if self.alpha <= 0.0 {
+            info!("Alpha {} is too small, clamping to 0.01", self.alpha);
+            self.alpha = 0.01;
+        } else if self.alpha > 2.0 {
+            info!("Alpha {} is too large, clamping to 2.0", self.alpha);
+            self.alpha = 2.0;
+        }
+
+        // Validate parameters
+        self.validate_params()?;
+
+        Ok(())
+    }
 }
 
 /// Provides a debug string representation for [`EucmModel`].

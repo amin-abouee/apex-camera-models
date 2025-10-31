@@ -7,6 +7,7 @@
 //! to correct for these types of distortions in many computer vision applications.
 
 use crate::camera::{validation, CameraModel, CameraModelError, Intrinsics, Resolution};
+use log::info;
 use nalgebra::{DVector, Matrix2, Vector2, Vector3};
 use serde::{Deserialize, Serialize};
 use std::{fmt, fs, io::Write};
@@ -126,6 +127,103 @@ impl RadTanModel {
 
         model.validate_params()?;
         Ok(model)
+    }
+
+    /// Performs linear estimation to initialize distortion parameters from point correspondences.
+    ///
+    /// This method estimates the radial distortion coefficients [k1, k2, k3] using a linear
+    /// least squares approach given 3D-2D point correspondences. Tangential distortion parameters
+    /// (p1, p2) are set to 0.0. It assumes the intrinsic parameters (fx, fy, cx, cy) are already set.
+    ///
+    /// # Arguments
+    ///
+    /// * `points_3d`: Matrix3xX<f64> - 3D points in camera coordinates (each column is a point)
+    /// * `points_2d`: Matrix2xX<f64> - Corresponding 2D points in image coordinates
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success or a `CameraModelError` if the estimation fails.
+    pub fn linear_estimation(
+        &mut self,
+        points_3d: &nalgebra::Matrix3xX<f64>,
+        points_2d: &nalgebra::Matrix2xX<f64>,
+    ) -> Result<(), CameraModelError> {
+        if points_2d.ncols() != points_3d.ncols() {
+            return Err(CameraModelError::InvalidParams(
+                "Number of 2D and 3D points must match".to_string(),
+            ));
+        }
+
+        let num_points = points_2d.ncols();
+        if num_points < 3 {
+            return Err(CameraModelError::InvalidParams(
+                "Need at least 3 points for RadTan linear estimation".to_string(),
+            ));
+        }
+
+        // Set up the linear system to estimate distortion coefficients
+        let mut a = nalgebra::DMatrix::zeros(num_points * 2, 3); // Only estimate k1, k2, k3
+        let mut b = nalgebra::DVector::zeros(num_points * 2);
+
+        // Extract intrinsics
+        let fx = self.intrinsics.fx;
+        let fy = self.intrinsics.fy;
+        let cx = self.intrinsics.cx;
+        let cy = self.intrinsics.cy;
+
+        for i in 0..num_points {
+            let x = points_3d[(0, i)];
+            let y = points_3d[(1, i)];
+            let z = points_3d[(2, i)];
+            let u = points_2d[(0, i)];
+            let v = points_2d[(1, i)];
+
+            // Project to normalized coordinates
+            let x_norm = x / z;
+            let y_norm = y / z;
+            let r2 = x_norm * x_norm + y_norm * y_norm;
+            let r4 = r2 * r2;
+            let r6 = r4 * r2;
+
+            // Predicted undistorted pixel coordinates
+            let u_undist = fx * x_norm + cx;
+            let v_undist = fy * y_norm + cy;
+
+            // Set up linear system for distortion coefficients
+            a[(i * 2, 0)] = fx * x_norm * r2; // k1 term
+            a[(i * 2, 1)] = fx * x_norm * r4; // k2 term
+            a[(i * 2, 2)] = fx * x_norm * r6; // k3 term
+
+            a[(i * 2 + 1, 0)] = fy * y_norm * r2; // k1 term
+            a[(i * 2 + 1, 1)] = fy * y_norm * r4; // k2 term
+            a[(i * 2 + 1, 2)] = fy * y_norm * r6; // k3 term
+
+            b[i * 2] = u - u_undist;
+            b[i * 2 + 1] = v - v_undist;
+        }
+
+        // Solve the linear system using SVD
+        let svd = a.svd(true, true);
+        let distortion_coeffs = match svd.solve(&b, 1e-10) {
+            Ok(sol) => sol,
+            Err(err_msg) => {
+                return Err(CameraModelError::NumericalError(err_msg.to_string()));
+            }
+        };
+
+        // Update distortion coefficients (keep p1, p2 as zero for linear estimation)
+        self.distortions[0] = distortion_coeffs[0]; // k1
+        self.distortions[1] = distortion_coeffs[1]; // k2
+        self.distortions[2] = 0.0; // p1 (tangential)
+        self.distortions[3] = 0.0; // p2 (tangential)
+        self.distortions[4] = distortion_coeffs[2]; // k3
+
+        info!(
+            "RadTan linear estimation results: k1={}, k2={}, k3={}",
+            self.distortions[0], self.distortions[1], self.distortions[4]
+        );
+
+        Ok(())
     }
 }
 

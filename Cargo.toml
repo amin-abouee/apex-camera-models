@@ -38,19 +38,25 @@ yaml-rust = "0.4"
 
 # Logging
 log = "0.4"
+env_logger = "0.11"
 
 # Image processing
 image = "0.25.2"
 csv = "1.3.1"
+
+# CLI
+clap = { version = "4.5.38", features = ["derive"] }
 
 [dev-dependencies]
 # Testing dependencies
 approx = "0.5.1"
 
 # Example dependencies
-clap = { version = "4.5.38", features = ["derive"] }
 flexi_logger = "0.30"
-env_logger = "0.11"
+
+[[bin]]
+name = "camera_converter"
+path = "bin/camera_converter.rs"
 
 [profile.release]
 # Optimize for performance

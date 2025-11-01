@@ -10,9 +10,6 @@ use nalgebra::{
     DMatrix, DVector, Matrix, Matrix2xX, Matrix3xX, RawStorage, SVector, Vector2, U1, U2, U3,
 };
 
-#[cfg(test)]
-use nalgebra::Vector3;
-
 /// Projection factor for Double Sphere camera model optimization with apex-solver.
 ///
 /// This factor computes the reprojection error between observed 2D points and
@@ -252,6 +249,7 @@ impl Factor for DoubleSphereProjectionFactor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nalgebra::Vector3;
 
     #[test]
     fn test_factor_creation() {

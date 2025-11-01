@@ -5,15 +5,11 @@
 //! Unified Camera Model (EUCM). This allows using apex-solver's Levenberg-Marquardt optimizer
 //! with hand-derived analytical derivatives.
 
+use crate::camera::EucmModel;
 use apex_solver::core::factors::Factor;
 use nalgebra::{
     DMatrix, DVector, Matrix, Matrix2xX, Matrix3xX, RawStorage, SVector, Vector2, U1, U2, U3,
 };
-
-#[cfg(test)]
-use nalgebra::Vector3;
-
-use crate::camera::EucmModel;
 
 /// Projection factor for EUCM camera model optimization with apex-solver.
 ///
@@ -252,6 +248,7 @@ impl Factor for EucmProjectionFactor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nalgebra::Vector3;
 
     #[test]
     fn test_factor_creation() {

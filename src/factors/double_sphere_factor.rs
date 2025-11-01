@@ -6,7 +6,12 @@
 //! with hand-derived analytical derivatives.
 
 use apex_solver::core::factors::Factor;
-use nalgebra::{DMatrix, DVector, Matrix2xX, Matrix3xX, Vector2, Vector3};
+use nalgebra::{
+    DMatrix, DVector, Matrix, Matrix2xX, Matrix3xX, RawStorage, SVector, Vector2, U1, U2, U3,
+};
+
+#[cfg(test)]
+use nalgebra::Vector3;
 
 /// Projection factor for Double Sphere camera model optimization with apex-solver.
 ///
@@ -62,32 +67,37 @@ impl DoubleSphereProjectionFactor {
     ///
     /// # Arguments
     ///
-    /// * `point_3d` - 3D point in camera coordinates
-    /// * `point_2d` - Observed 2D point
-    /// * `fx, fy, cx, cy` - Intrinsic parameters
-    /// * `alpha, xi` - Double Sphere distortion parameters
+    /// * `point_3d` - 3D point in camera coordinates (column view)
+    /// * `point_2d` - Observed 2D point (column view)
+    /// * `params` - Camera parameters [fx, fy, cx, cy, alpha, xi]
     /// * `compute_jacobian` - Whether to compute the Jacobian
     ///
     /// # Returns
     ///
     /// Tuple of (residual_vector, optional_jacobian_matrix)
     #[inline]
-    fn compute_point_residual_jacobian(
-        point_3d: &Vector3<f64>,
-        point_2d: &Vector2<f64>,
-        fx: f64,
-        fy: f64,
-        cx: f64,
-        cy: f64,
-        alpha: f64,
-        xi: f64,
+    fn compute_point_residual_jacobian<S3, S2>(
+        point_3d: Matrix<f64, U3, U1, S3>,
+        point_2d: Matrix<f64, U2, U1, S2>,
+        params: &SVector<f64, 6>,
         compute_jacobian: bool,
-    ) -> (Vector2<f64>, Option<nalgebra::Matrix2x6<f64>>) {
+    ) -> (Vector2<f64>, Option<nalgebra::Matrix2x6<f64>>)
+    where
+        S3: RawStorage<f64, U3, U1>,
+        S2: RawStorage<f64, U2, U1>,
+    {
+        // Extract camera parameters
+        let fx = params[0];
+        let fy = params[1];
+        let cx = params[2];
+        let cy = params[3];
+        let alpha = params[4];
+        let xi = params[5];
         const PRECISION: f64 = 1e-3;
 
-        let x = point_3d.x;
-        let y = point_3d.y;
-        let z = point_3d.z;
+        let x = point_3d[0];
+        let y = point_3d[1];
+        let z = point_3d[2];
 
         let r_squared = x * x + y * y;
         let d1 = (r_squared + z * z).sqrt();
@@ -118,8 +128,8 @@ impl DoubleSphereProjectionFactor {
         }
 
         // Compute residual
-        let u_cx = point_2d.x - cx;
-        let v_cy = point_2d.y - cy;
+        let u_cx = point_2d[0] - cx;
+        let v_cy = point_2d[1] - cy;
 
         let residual = Vector2::new(fx * x - u_cx * denom, fy * y - v_cy * denom);
 
@@ -167,7 +177,7 @@ impl Factor for DoubleSphereProjectionFactor {
     /// # Arguments
     ///
     /// * `params` - Slice containing camera parameters as a single DVector:
-    ///              `params[0] = [fx, fy, cx, cy, alpha, xi]`
+    ///   `params[0] = [fx, fy, cx, cy, alpha, xi]`
     /// * `compute_jacobian` - Whether to compute the Jacobian matrix
     ///
     /// # Returns
@@ -180,14 +190,16 @@ impl Factor for DoubleSphereProjectionFactor {
         params: &[DVector<f64>],
         compute_jacobian: bool,
     ) -> (DVector<f64>, Option<DMatrix<f64>>) {
-        // Extract camera parameters
+        // Extract camera parameters into SVector
         let cam_params = &params[0];
-        let fx = cam_params[0];
-        let fy = cam_params[1];
-        let cx = cam_params[2];
-        let cy = cam_params[3];
-        let alpha = cam_params[4];
-        let xi = cam_params[5];
+        let camera_params = SVector::<f64, 6>::from_row_slice(&[
+            cam_params[0], // fx
+            cam_params[1], // fy
+            cam_params[2], // cx
+            cam_params[3], // cy
+            cam_params[4], // alpha
+            cam_params[5], // xi
+        ]);
 
         let num_points = self.points_2d.ncols();
         let residual_dim = num_points * 2;
@@ -204,18 +216,10 @@ impl Factor for DoubleSphereProjectionFactor {
 
         // Process each point
         for i in 0..num_points {
-            let point_3d = self.points_3d.column(i).into_owned();
-            let point_2d = self.points_2d.column(i).into_owned();
-
             let (point_residual, point_jacobian) = Self::compute_point_residual_jacobian(
-                &point_3d,
-                &point_2d,
-                fx,
-                fy,
-                cx,
-                cy,
-                alpha,
-                xi,
+                self.points_3d.column(i),
+                self.points_2d.column(i),
+                &camera_params,
                 compute_jacobian,
             );
 

@@ -12,7 +12,12 @@
 //! - "A Unifying Theory for Central Panoramic Systems" by Geyer and Daniilidis
 
 use apex_solver::core::factors::Factor;
-use nalgebra::{DMatrix, DVector, Matrix2xX, Matrix3xX, Vector2, Vector3};
+use nalgebra::{
+    DMatrix, DVector, Matrix, Matrix2xX, Matrix3xX, RawStorage, SVector, Vector2, U1, U2, U3,
+};
+
+#[cfg(test)]
+use nalgebra::Vector3;
 
 /// Projection factor for Unified Camera Model (UCM) optimization with apex-solver.
 ///
@@ -69,31 +74,36 @@ impl UcmProjectionFactor {
     ///
     /// # Arguments
     ///
-    /// * `point_3d` - 3D point in camera coordinates
-    /// * `point_2d` - Observed 2D point
-    /// * `fx, fy, cx, cy` - Intrinsic parameters
-    /// * `alpha` - UCM distortion parameter
+    /// * `point_3d` - 3D point in camera coordinates (column view)
+    /// * `point_2d` - Observed 2D point (column view)
+    /// * `params` - Camera parameters [fx, fy, cx, cy, alpha]
     /// * `compute_jacobian` - Whether to compute the Jacobian
     ///
     /// # Returns
     ///
     /// Tuple of (residual_vector, optional_jacobian_matrix)
     #[inline]
-    fn compute_point_residual_jacobian(
-        point_3d: &Vector3<f64>,
-        point_2d: &Vector2<f64>,
-        fx: f64,
-        fy: f64,
-        cx: f64,
-        cy: f64,
-        alpha: f64,
+    fn compute_point_residual_jacobian<S3, S2>(
+        point_3d: Matrix<f64, U3, U1, S3>,
+        point_2d: Matrix<f64, U2, U1, S2>,
+        params: &SVector<f64, 5>,
         compute_jacobian: bool,
-    ) -> (Vector2<f64>, Option<nalgebra::Matrix2x5<f64>>) {
+    ) -> (Vector2<f64>, Option<nalgebra::Matrix2x5<f64>>)
+    where
+        S3: RawStorage<f64, U3, U1>,
+        S2: RawStorage<f64, U2, U1>,
+    {
+        // Extract camera parameters
+        let fx = params[0];
+        let fy = params[1];
+        let cx = params[2];
+        let cy = params[3];
+        let alpha = params[4];
         const PRECISION: f64 = 1e-3;
 
-        let x = point_3d.x;
-        let y = point_3d.y;
-        let z = point_3d.z;
+        let x = point_3d[0];
+        let y = point_3d[1];
+        let z = point_3d[2];
 
         // Compute distance from origin
         let d = (x * x + y * y + z * z).sqrt();
@@ -121,8 +131,8 @@ impl UcmProjectionFactor {
         }
 
         // Compute residual using formulation: fx * x - (u - cx) * denom
-        let u_cx = point_2d.x - cx;
-        let v_cy = point_2d.y - cy;
+        let u_cx = point_2d[0] - cx;
+        let v_cy = point_2d[1] - cy;
 
         let residual = Vector2::new(fx * x - u_cx * denom, fy * y - v_cy * denom);
 
@@ -183,7 +193,7 @@ impl Factor for UcmProjectionFactor {
     /// # Arguments
     ///
     /// * `params` - Slice containing camera parameters as a single DVector:
-    ///              `params[0] = [fx, fy, cx, cy, alpha]`
+    ///   `params[0] = [fx, fy, cx, cy, alpha]`
     /// * `compute_jacobian` - Whether to compute the Jacobian matrix
     ///
     /// # Returns
@@ -196,13 +206,15 @@ impl Factor for UcmProjectionFactor {
         params: &[DVector<f64>],
         compute_jacobian: bool,
     ) -> (DVector<f64>, Option<DMatrix<f64>>) {
-        // Extract camera parameters
+        // Extract camera parameters into SVector
         let cam_params = &params[0];
-        let fx = cam_params[0];
-        let fy = cam_params[1];
-        let cx = cam_params[2];
-        let cy = cam_params[3];
-        let alpha = cam_params[4];
+        let camera_params = SVector::<f64, 5>::from_row_slice(&[
+            cam_params[0], // fx
+            cam_params[1], // fy
+            cam_params[2], // cx
+            cam_params[3], // cy
+            cam_params[4], // alpha
+        ]);
 
         let num_points = self.points_2d.ncols();
         let residual_dim = num_points * 2;
@@ -220,13 +232,9 @@ impl Factor for UcmProjectionFactor {
         // Process each point
         for i in 0..num_points {
             let (point_residual, point_jacobian) = Self::compute_point_residual_jacobian(
-                &self.points_3d.column(i).into_owned(),
-                &self.points_2d.column(i).into_owned(),
-                fx,
-                fy,
-                cx,
-                cy,
-                alpha,
+                self.points_3d.column(i),
+                self.points_2d.column(i),
+                &camera_params,
                 compute_jacobian,
             );
 

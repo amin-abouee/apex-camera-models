@@ -1,0 +1,13 @@
+cam0:
+  camera_model: eucm
+  intrinsics:
+    [
+      1313.83,
+      1313.27,
+      960.471,
+      546.981,
+      1.01674,
+      0.5,
+    ]
+  rostopic: /cam0/image_raw
+  resolution: [752, 480]

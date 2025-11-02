@@ -97,16 +97,16 @@ jobs:
             ${{ matrix.os }}-${{ matrix.target }}-cargo-build-
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} --example camera_model_converter
+        run: cargo build --release --target ${{ matrix.target }} --bin camera_converter
 
       - name: Prepare binary
         shell: bash
         run: |
-          cd target/${{ matrix.target }}/release/examples
+          cd target/${{ matrix.target }}/release
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            cp camera_model_converter.exe ${{ matrix.artifact_name }}
+            cp camera_converter.exe ${{ matrix.artifact_name }}
           else
-            cp camera_model_converter ${{ matrix.artifact_name }}
+            cp camera_converter ${{ matrix.artifact_name }}
           fi
           ls -la
 
@@ -114,7 +114,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: target/${{ matrix.target }}/release/examples/${{ matrix.artifact_name }}
+          path: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
 
   create-release:
     name: Create Release

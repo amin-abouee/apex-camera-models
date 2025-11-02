@@ -112,6 +112,13 @@ impl UcmModel {
     /// assert_eq!(model.resolution.width, 752);
     /// ```
     pub fn new(parameters: &DVector<f64>) -> Result<Self, CameraModelError> {
+        if parameters.len() != 5 {
+            return Err(CameraModelError::InvalidParams(format!(
+                "Expected 5 parameters (fx, fy, cx, cy, alpha), got {}",
+                parameters.len()
+            )));
+        }
+
         let model = UcmModel {
             intrinsics: Intrinsics {
                 fx: parameters[0],

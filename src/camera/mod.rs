@@ -127,6 +127,109 @@ impl From<yaml_rust::ScanError> for CameraModelError {
     }
 }
 
+/// Validates that a projected 2D point falls within the image boundaries.
+///
+/// # Arguments
+///
+/// * `u` - The x-coordinate (horizontal) of the projected point in pixels
+/// * `v` - The y-coordinate (vertical) of the projected point in pixels
+/// * `resolution` - The image resolution (width and height)
+///
+/// # Returns
+///
+/// * `Ok(())` if the point is within bounds
+/// * `Err(CameraModelError::ProjectionOutSideImage)` if the point is outside the image
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use apex_camera_models::camera::validate_projection_bounds;
+/// use apex_camera_models::camera::Resolution;
+///
+/// let resolution = Resolution { width: 640, height: 480 };
+/// assert!(validate_projection_bounds(320.0, 240.0, &resolution).is_ok());
+/// assert!(validate_projection_bounds(-10.0, 240.0, &resolution).is_err());
+/// assert!(validate_projection_bounds(320.0, 500.0, &resolution).is_err());
+/// ```
+pub fn validate_projection_bounds(
+    u: f64,
+    v: f64,
+    resolution: &Resolution,
+) -> Result<(), CameraModelError> {
+    if u < 0.0 || u >= resolution.width as f64 || v < 0.0 || v >= resolution.height as f64 {
+        return Err(CameraModelError::ProjectionOutSideImage);
+    }
+    Ok(())
+}
+
+/// Validates that a 2D image point falls within the image boundaries for unprojection.
+///
+/// # Arguments
+///
+/// * `point_2d` - The 2D point in pixel coordinates (u, v)
+/// * `resolution` - The image resolution (width and height)
+///
+/// # Returns
+///
+/// * `Ok(())` if the point is within bounds
+/// * `Err(CameraModelError::PointIsOutSideImage)` if the point is outside the image
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use apex_camera_models::camera::validate_unprojection_bounds;
+/// use apex_camera_models::camera::Resolution;
+/// use nalgebra::Vector2;
+///
+/// let resolution = Resolution { width: 640, height: 480 };
+/// let valid_point = Vector2::new(320.0, 240.0);
+/// let invalid_point = Vector2::new(-10.0, 240.0);
+///
+/// assert!(validate_unprojection_bounds(&valid_point, &resolution).is_ok());
+/// assert!(validate_unprojection_bounds(&invalid_point, &resolution).is_err());
+/// ```
+pub fn validate_unprojection_bounds(
+    point_2d: &Vector2<f64>,
+    resolution: &Resolution,
+) -> Result<(), CameraModelError> {
+    if point_2d.x < 0.0
+        || point_2d.x >= resolution.width as f64
+        || point_2d.y < 0.0
+        || point_2d.y >= resolution.height as f64
+    {
+        return Err(CameraModelError::PointIsOutSideImage);
+    }
+    Ok(())
+}
+
+/// Validates that a 3D point's z-coordinate is positive (in front of camera).
+///
+/// # Arguments
+///
+/// * `z` - The z-coordinate of the 3D point in camera space
+///
+/// # Returns
+///
+/// * `Ok(())` if z is sufficiently positive
+/// * `Err(CameraModelError::PointAtCameraCenter)` if z is too close to zero or negative
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use apex_camera_models::camera::validate_point_in_front;
+///
+/// assert!(validate_point_in_front(1.0).is_ok());
+/// assert!(validate_point_in_front(0.001).is_ok());
+/// assert!(validate_point_in_front(0.0).is_err());
+/// assert!(validate_point_in_front(-1.0).is_err());
+/// ```
+pub fn validate_point_in_front(z: f64) -> Result<(), CameraModelError> {
+    if z < f64::EPSILON.sqrt() {
+        return Err(CameraModelError::PointAtCameraCenter);
+    }
+    Ok(())
+}
+
 /// Defines the core functionality and interface for all camera models.
 ///
 /// This trait provides a common set of methods that any camera model implementation
@@ -304,5 +407,58 @@ mod tests {
         let ucm_params = DVector::from_vec(vec![350.0, 350.0, 320.0, 240.0, 0.8]);
         let ucm_model = ucm::UcmModel::new(&ucm_params).unwrap();
         assert_eq!(ucm_model.get_model_name(), "ucm");
+    }
+
+    #[test]
+    fn test_validate_projection_bounds() {
+        let resolution = Resolution {
+            width: 640,
+            height: 480,
+        };
+
+        // Valid points
+        assert!(validate_projection_bounds(0.0, 0.0, &resolution).is_ok());
+        assert!(validate_projection_bounds(320.0, 240.0, &resolution).is_ok());
+        assert!(validate_projection_bounds(639.0, 479.0, &resolution).is_ok());
+
+        // Invalid points
+        assert!(validate_projection_bounds(-1.0, 240.0, &resolution).is_err());
+        assert!(validate_projection_bounds(640.0, 240.0, &resolution).is_err());
+        assert!(validate_projection_bounds(320.0, -1.0, &resolution).is_err());
+        assert!(validate_projection_bounds(320.0, 480.0, &resolution).is_err());
+        assert!(validate_projection_bounds(1000.0, 1000.0, &resolution).is_err());
+    }
+
+    #[test]
+    fn test_validate_unprojection_bounds() {
+        let resolution = Resolution {
+            width: 640,
+            height: 480,
+        };
+
+        // Valid points
+        assert!(validate_unprojection_bounds(&Vector2::new(0.0, 0.0), &resolution).is_ok());
+        assert!(validate_unprojection_bounds(&Vector2::new(320.0, 240.0), &resolution).is_ok());
+        assert!(validate_unprojection_bounds(&Vector2::new(639.0, 479.0), &resolution).is_ok());
+
+        // Invalid points
+        assert!(validate_unprojection_bounds(&Vector2::new(-1.0, 240.0), &resolution).is_err());
+        assert!(validate_unprojection_bounds(&Vector2::new(640.0, 240.0), &resolution).is_err());
+        assert!(validate_unprojection_bounds(&Vector2::new(320.0, -1.0), &resolution).is_err());
+        assert!(validate_unprojection_bounds(&Vector2::new(320.0, 480.0), &resolution).is_err());
+    }
+
+    #[test]
+    fn test_validate_point_in_front() {
+        // Valid z values
+        assert!(validate_point_in_front(1.0).is_ok());
+        assert!(validate_point_in_front(0.1).is_ok());
+        assert!(validate_point_in_front(0.001).is_ok());
+
+        // Invalid z values
+        assert!(validate_point_in_front(0.0).is_err());
+        assert!(validate_point_in_front(-1.0).is_err());
+        assert!(validate_point_in_front(-0.001).is_err());
+        assert!(validate_point_in_front(1e-10).is_err()); // Too close to zero
     }
 }

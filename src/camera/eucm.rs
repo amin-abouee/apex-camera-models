@@ -126,6 +126,12 @@ impl EucmModel {
     /// assert_eq!(model.resolution.width, 752);
     /// ```
     pub fn new(parameters: &DVector<f64>) -> Result<Self, CameraModelError> {
+        if parameters.len() != 6 {
+            return Err(CameraModelError::InvalidParams(format!(
+                "Expected 6 parameters (fx, fy, cx, cy, alpha, beta), got {}",
+                parameters.len()
+            )));
+        }
         let model = EucmModel {
             intrinsics: Intrinsics {
                 fx: parameters[0],

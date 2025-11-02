@@ -105,6 +105,13 @@ impl RadTanModel {
     /// assert_eq!(model.resolution.width, 640);
     /// ```
     pub fn new(parameters: &DVector<f64>) -> Result<Self, CameraModelError> {
+        if parameters.len() != 9 {
+            return Err(CameraModelError::InvalidParams(format!(
+                "Expected 9 parameters (fx, fy, cx, cy, k1, k2, p1, p2, k3), got {}",
+                parameters.len()
+            )));
+        }
+
         let model = RadTanModel {
             intrinsics: Intrinsics {
                 fx: parameters[0],

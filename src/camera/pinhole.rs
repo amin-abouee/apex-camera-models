@@ -82,6 +82,12 @@ impl PinholeModel {
     /// assert_eq!(model.resolution.height, 480);
     /// ```
     pub fn new(parameters: &DVector<f64>) -> Result<Self, CameraModelError> {
+        if parameters.len() != 4 {
+            return Err(CameraModelError::InvalidParams(format!(
+                "Expected 4 parameters (fx, fy, cx, cy), got {}",
+                parameters.len()
+            )));
+        }
         let model = PinholeModel {
             intrinsics: Intrinsics {
                 fx: parameters[0],

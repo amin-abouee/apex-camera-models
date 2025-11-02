@@ -367,6 +367,214 @@ pub mod validation {
     }
 }
 
+/// Provides common YAML I/O helper functions to reduce code duplication across camera models.
+///
+/// This module contains utility functions for parsing and saving YAML files in the
+/// standard camera calibration format used by all camera models.
+pub mod yaml_io {
+    use super::*;
+    use std::fs;
+    use std::io::Write;
+    use yaml_rust::YamlLoader;
+
+    /// Parses intrinsics, resolution, and optional extra parameters from a YAML file.
+    ///
+    /// This helper function extracts the common structure present in all camera model YAML files:
+    /// - Loads and parses the YAML document
+    /// - Extracts the `cam0` node
+    /// - Parses the `intrinsics` array (fx, fy, cx, cy, ...extra params)
+    /// - Parses the `resolution` array (width, height)
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the YAML file
+    /// * `min_intrinsics_len` - Minimum number of intrinsic parameters expected
+    ///   (4 for pinhole, 5 for UCM, 6 for double sphere, etc.)
+    ///
+    /// # Returns
+    ///
+    /// Returns a tuple containing:
+    /// * `Intrinsics` - The parsed intrinsic parameters (fx, fy, cx, cy)
+    /// * `Resolution` - The parsed image resolution (width, height)
+    /// * `Vec<f64>` - Any extra parameters beyond the first 4 (distortion params, etc.)
+    ///
+    /// # Errors
+    ///
+    /// Returns `CameraModelError` if:
+    /// * File cannot be read
+    /// * YAML parsing fails
+    /// * Required nodes are missing
+    /// * Array lengths are insufficient
+    /// * Values cannot be parsed as expected types
+    pub fn parse_yaml_camera(
+        path: &str,
+        min_intrinsics_len: usize,
+    ) -> Result<(Intrinsics, Resolution, Vec<f64>), CameraModelError> {
+        let contents = fs::read_to_string(path)?;
+        let docs = YamlLoader::load_from_str(&contents)?;
+
+        if docs.is_empty() {
+            return Err(CameraModelError::InvalidParams(
+                "Empty YAML document".to_string(),
+            ));
+        }
+
+        let doc = &docs[0];
+        let cam_node = &doc["cam0"];
+
+        if cam_node.is_badvalue() {
+            return Err(CameraModelError::InvalidParams(
+                "Missing 'cam0' node in YAML".to_string(),
+            ));
+        }
+
+        // Parse intrinsics array
+        let intrinsics_yaml = cam_node["intrinsics"].as_vec().ok_or_else(|| {
+            CameraModelError::InvalidParams(
+                "YAML missing 'intrinsics' array under 'cam0'".to_string(),
+            )
+        })?;
+
+        if intrinsics_yaml.len() < min_intrinsics_len {
+            return Err(CameraModelError::InvalidParams(format!(
+                "Intrinsics array must have at least {} elements, got {}",
+                min_intrinsics_len,
+                intrinsics_yaml.len()
+            )));
+        }
+
+        // Parse resolution array
+        let resolution_yaml = cam_node["resolution"].as_vec().ok_or_else(|| {
+            CameraModelError::InvalidParams(
+                "YAML missing 'resolution' array under 'cam0'".to_string(),
+            )
+        })?;
+
+        if resolution_yaml.len() < 2 {
+            return Err(CameraModelError::InvalidParams(
+                "Resolution array must have at least 2 elements (width, height)".to_string(),
+            ));
+        }
+
+        // Extract intrinsics (first 4 elements)
+        let intrinsics = Intrinsics {
+            fx: intrinsics_yaml[0].as_f64().ok_or_else(|| {
+                CameraModelError::InvalidParams("Invalid fx: not a float".to_string())
+            })?,
+            fy: intrinsics_yaml[1].as_f64().ok_or_else(|| {
+                CameraModelError::InvalidParams("Invalid fy: not a float".to_string())
+            })?,
+            cx: intrinsics_yaml[2].as_f64().ok_or_else(|| {
+                CameraModelError::InvalidParams("Invalid cx: not a float".to_string())
+            })?,
+            cy: intrinsics_yaml[3].as_f64().ok_or_else(|| {
+                CameraModelError::InvalidParams("Invalid cy: not a float".to_string())
+            })?,
+        };
+
+        // Extract resolution
+        let resolution = Resolution {
+            width: resolution_yaml[0].as_i64().ok_or_else(|| {
+                CameraModelError::InvalidParams("Invalid width: not an integer".to_string())
+            })? as u32,
+            height: resolution_yaml[1].as_i64().ok_or_else(|| {
+                CameraModelError::InvalidParams("Invalid height: not an integer".to_string())
+            })? as u32,
+        };
+
+        // Extract extra parameters (beyond first 4)
+        let mut extra_params = Vec::new();
+        for (i, param_yaml) in intrinsics_yaml.iter().enumerate().skip(4) {
+            let param = param_yaml.as_f64().ok_or_else(|| {
+                CameraModelError::InvalidParams(format!(
+                    "Invalid parameter at index {}: not a float",
+                    i
+                ))
+            })?;
+            extra_params.push(param);
+        }
+
+        Ok((intrinsics, resolution, extra_params))
+    }
+
+    /// Saves camera model parameters to a YAML file in standard format.
+    ///
+    /// This helper creates a YAML file with the structure:
+    /// ```yaml
+    /// cam0:
+    ///   camera_model: <model_name>
+    ///   intrinsics: [fx, fy, cx, cy, ...extra_params]
+    ///   resolution: [width, height]
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path where the YAML file will be saved
+    /// * `model_name` - Name of the camera model (e.g., "pinhole", "double_sphere")
+    /// * `intrinsics` - The intrinsic parameters
+    /// * `resolution` - The image resolution
+    /// * `extra_params` - Additional parameters to append to intrinsics array
+    ///
+    /// # Errors
+    ///
+    /// Returns `CameraModelError` if:
+    /// * YAML serialization fails
+    /// * File creation/writing fails
+    pub fn save_yaml_camera(
+        path: &str,
+        model_name: &str,
+        intrinsics: &Intrinsics,
+        resolution: &Resolution,
+        extra_params: &[f64],
+    ) -> Result<(), CameraModelError> {
+        use serde_yaml;
+
+        // Build intrinsics array: [fx, fy, cx, cy, ...extra]
+        let mut intrinsics_vec = vec![intrinsics.fx, intrinsics.fy, intrinsics.cx, intrinsics.cy];
+        intrinsics_vec.extend_from_slice(extra_params);
+
+        // Build YAML structure
+        let yaml = serde_yaml::to_value(serde_yaml::Mapping::from_iter([(
+            serde_yaml::Value::String("cam0".to_string()),
+            serde_yaml::to_value(serde_yaml::Mapping::from_iter([
+                (
+                    serde_yaml::Value::String("camera_model".to_string()),
+                    serde_yaml::Value::String(model_name.to_string()),
+                ),
+                (
+                    serde_yaml::Value::String("intrinsics".to_string()),
+                    serde_yaml::to_value(intrinsics_vec)
+                        .map_err(|e| CameraModelError::YamlError(e.to_string()))?,
+                ),
+                (
+                    serde_yaml::Value::String("resolution".to_string()),
+                    serde_yaml::to_value(vec![resolution.width, resolution.height])
+                        .map_err(|e| CameraModelError::YamlError(e.to_string()))?,
+                ),
+            ]))
+            .map_err(|e| CameraModelError::YamlError(e.to_string()))?,
+        )]))
+        .map_err(|e| CameraModelError::YamlError(e.to_string()))?;
+
+        // Convert to string and write to file
+        let yaml_string =
+            serde_yaml::to_string(&yaml).map_err(|e| CameraModelError::YamlError(e.to_string()))?;
+
+        // Create parent directory if it doesn't exist
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            fs::create_dir_all(parent).map_err(|e| CameraModelError::IOError(e.to_string()))?;
+        }
+
+        let mut file =
+            fs::File::create(path).map_err(|e| CameraModelError::IOError(e.to_string()))?;
+
+        file.write_all(yaml_string.as_bytes())
+            .map_err(|e| CameraModelError::IOError(e.to_string()))?;
+
+        Ok(())
+    }
+}
+
 /// Contains unit tests for the camera module.
 #[cfg(test)]
 mod tests {

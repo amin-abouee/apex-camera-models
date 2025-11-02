@@ -679,9 +679,7 @@ impl CameraModel for RadTanModel {
                                 [
                                     (
                                         serde_yaml::Value::String("camera_model".to_string()),
-                                        // TODO: This should ideally be "rad_tan" or similar, not "double_sphere".
-                                        // Documenting current behavior.
-                                        serde_yaml::Value::String("double_sphere".to_string()),
+                                        serde_yaml::Value::String("rad_tan".to_string()),
                                     ),
                                     (
                                         serde_yaml::Value::String("intrinsics".to_string()),

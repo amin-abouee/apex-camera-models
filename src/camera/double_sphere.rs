@@ -14,8 +14,7 @@ use crate::camera::{validation, CameraModel, CameraModelError, Intrinsics, Resol
 use log::info;
 use nalgebra::{DVector, Vector2, Vector3};
 use serde::{Deserialize, Serialize};
-use std::{fmt, fs, io::Write};
-use yaml_rust::YamlLoader;
+use std::fmt;
 
 /// Implements the Double Sphere camera model for wide-angle/fisheye lenses.
 ///
@@ -508,77 +507,21 @@ impl CameraModel for DoubleSphereModel {
     /// # Related
     /// * [`DoubleSphereModel::save_to_yaml()`]
     fn load_from_yaml(path: &str) -> Result<Self, CameraModelError> {
-        let contents = fs::read_to_string(path)?;
-        let docs = YamlLoader::load_from_str(&contents)?;
+        use crate::camera::yaml_io;
 
-        if docs.is_empty() {
-            return Err(CameraModelError::InvalidParams(
-                "Empty YAML document".to_string(),
-            ));
+        // Use helper function to parse YAML (double sphere has 6 params: fx, fy, cx, cy, alpha, xi)
+        let (intrinsics, resolution, extra_params) = yaml_io::parse_yaml_camera(path, 6)?;
+
+        // Extract alpha and xi from extra_params
+        if extra_params.len() != 2 {
+            return Err(CameraModelError::InvalidParams(format!(
+                "Double Sphere model expects exactly 6 parameters (fx, fy, cx, cy, alpha, xi), got {}",
+                4 + extra_params.len()
+            )));
         }
 
-        let doc = &docs[0];
-
-        let intrinsics_yaml_vec = doc["cam0"]["intrinsics"] // Renamed for clarity
-            .as_vec()
-            .ok_or_else(|| {
-                CameraModelError::InvalidParams(
-                    "YAML missing 'intrinsics' array under 'cam0'".to_string(),
-                )
-            })?;
-        let resolution_yaml_vec = doc["cam0"]["resolution"] // Renamed for clarity
-            .as_vec()
-            .ok_or_else(|| {
-                CameraModelError::InvalidParams(
-                    "YAML missing 'resolution' array under 'cam0'".to_string(),
-                )
-            })?;
-
-        if intrinsics_yaml_vec.len() < 6 {
-            return Err(CameraModelError::InvalidParams(
-                "Intrinsics array in YAML must have at least 6 elements (fx, fy, cx, cy, alpha, xi)".to_string()
-            ));
-        }
-
-        let alpha = intrinsics_yaml_vec[4].as_f64().ok_or_else(|| {
-            CameraModelError::InvalidParams("Invalid alpha in YAML: not a float".to_string())
-        })?;
-
-        let xi = intrinsics_yaml_vec[5].as_f64().ok_or_else(|| {
-            CameraModelError::InvalidParams("Invalid xi in YAML: not a float".to_string())
-        })?;
-
-        let intrinsics = Intrinsics {
-            fx: intrinsics_yaml_vec[0].as_f64().ok_or_else(|| {
-                CameraModelError::InvalidParams("Invalid fx in YAML: not a float".to_string())
-            })?,
-            fy: intrinsics_yaml_vec[1].as_f64().ok_or_else(|| {
-                CameraModelError::InvalidParams("Invalid fy in YAML: not a float".to_string())
-            })?,
-            cx: intrinsics_yaml_vec[2].as_f64().ok_or_else(|| {
-                CameraModelError::InvalidParams("Invalid cx in YAML: not a float".to_string())
-            })?,
-            cy: intrinsics_yaml_vec[3].as_f64().ok_or_else(|| {
-                CameraModelError::InvalidParams("Invalid cy in YAML: not a float".to_string())
-            })?,
-        };
-
-        if resolution_yaml_vec.len() < 2 {
-            return Err(CameraModelError::InvalidParams(
-                "Resolution array in YAML must have at least 2 elements (width, height)"
-                    .to_string(),
-            ));
-        }
-        let resolution = Resolution {
-            width: resolution_yaml_vec[0].as_i64().ok_or_else(|| {
-                CameraModelError::InvalidParams("Invalid width in YAML: not an integer".to_string())
-            })? as u32,
-            height: resolution_yaml_vec[1].as_i64().ok_or_else(|| {
-                CameraModelError::InvalidParams(
-                    "Invalid height in YAML: not an integer".to_string(),
-                )
-            })? as u32,
-        };
+        let alpha = extra_params[0];
+        let xi = extra_params[1];
 
         let model = DoubleSphereModel {
             intrinsics,
@@ -614,52 +557,16 @@ impl CameraModel for DoubleSphereModel {
     /// # Related
     /// * [`DoubleSphereModel::load_from_yaml()`]
     fn save_to_yaml(&self, path: &str) -> Result<(), CameraModelError> {
-        // Create the YAML structure using serde_yaml
-        let yaml = serde_yaml::to_value(serde_yaml::Mapping::from_iter([(
-            serde_yaml::Value::String("cam0".to_string()),
-            serde_yaml::to_value(serde_yaml::Mapping::from_iter([
-                (
-                    serde_yaml::Value::String("camera_model".to_string()),
-                    serde_yaml::Value::String("double_sphere".to_string()),
-                ),
-                (
-                    serde_yaml::Value::String("intrinsics".to_string()),
-                    serde_yaml::to_value(vec![
-                        self.intrinsics.fx,
-                        self.intrinsics.fy,
-                        self.intrinsics.cx,
-                        self.intrinsics.cy,
-                        self.alpha, // alpha is 5th element
-                        self.xi,    // xi is 6th element
-                    ])
-                    .map_err(|e| CameraModelError::YamlError(e.to_string()))?,
-                ),
-                (
-                    serde_yaml::Value::String("rostopic".to_string()), // Often included in Kalibr format
-                    serde_yaml::Value::String("/cam0/image_raw".to_string()),
-                ),
-                (
-                    serde_yaml::Value::String("resolution".to_string()),
-                    serde_yaml::to_value(vec![self.resolution.width, self.resolution.height])
-                        .map_err(|e| CameraModelError::YamlError(e.to_string()))?,
-                ),
-            ]))
-            .map_err(|e| CameraModelError::YamlError(e.to_string()))?,
-        )]))
-        .map_err(|e| CameraModelError::YamlError(e.to_string()))?;
+        use crate::camera::yaml_io;
 
-        // Convert to string
-        let yaml_string =
-            serde_yaml::to_string(&yaml).map_err(|e| CameraModelError::YamlError(e.to_string()))?;
-
-        // Write to file
-        let mut file =
-            fs::File::create(path).map_err(|e| CameraModelError::IOError(e.to_string()))?;
-
-        file.write_all(yaml_string.as_bytes())
-            .map_err(|e| CameraModelError::IOError(e.to_string()))?;
-
-        Ok(())
+        // Use helper function to save YAML (alpha and xi as extra parameters)
+        yaml_io::save_yaml_camera(
+            path,
+            "double_sphere",
+            &self.intrinsics,
+            &self.resolution,
+            &[self.alpha, self.xi],
+        )
     }
 
     /// Validates the parameters of the [`DoubleSphereModel`].

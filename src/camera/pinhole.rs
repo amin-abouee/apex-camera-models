@@ -8,9 +8,6 @@
 use crate::camera::{validation, CameraModel, CameraModelError, Intrinsics, Resolution};
 use nalgebra::{DVector, Vector2, Vector3};
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::io::Write;
-use yaml_rust::YamlLoader;
 
 /// Represents a Pinhole camera model.
 ///
@@ -275,40 +272,18 @@ impl CameraModel for PinholeModel {
     /// # Related
     /// * [`PinholeModel::save_to_yaml()`]
     fn load_from_yaml(path: &str) -> Result<Self, CameraModelError> {
-        let contents = fs::read_to_string(path)?;
-        let docs = YamlLoader::load_from_str(&contents)?;
-        let doc = &docs[0];
+        use crate::camera::yaml_io;
 
-        let intrinsics_yaml = doc["cam0"]["intrinsics"].as_vec().ok_or_else(|| {
-            CameraModelError::InvalidParams("YAML missing 'intrinsics' or not an array".to_string())
-        })?;
-        let resolution_yaml = doc["cam0"]["resolution"].as_vec().ok_or_else(|| {
-            CameraModelError::InvalidParams("YAML missing 'resolution' or not an array".to_string())
-        })?;
+        // Use helper function to parse YAML (pinhole has 4 intrinsic params: fx, fy, cx, cy)
+        let (intrinsics, resolution, extra_params) = yaml_io::parse_yaml_camera(path, 4)?;
 
-        let intrinsics = Intrinsics {
-            fx: intrinsics_yaml[0].as_f64().ok_or_else(|| {
-                CameraModelError::InvalidParams("Invalid fx: not a float".to_string())
-            })?,
-            fy: intrinsics_yaml[1].as_f64().ok_or_else(|| {
-                CameraModelError::InvalidParams("Invalid fy: not a float".to_string())
-            })?,
-            cx: intrinsics_yaml[2].as_f64().ok_or_else(|| {
-                CameraModelError::InvalidParams("Invalid cx: not a float".to_string())
-            })?,
-            cy: intrinsics_yaml[3].as_f64().ok_or_else(|| {
-                CameraModelError::InvalidParams("Invalid cy: not a float".to_string())
-            })?,
-        };
-
-        let resolution = Resolution {
-            width: resolution_yaml[0].as_i64().ok_or_else(|| {
-                CameraModelError::InvalidParams("Invalid width: not an integer".to_string())
-            })? as u32,
-            height: resolution_yaml[1].as_i64().ok_or_else(|| {
-                CameraModelError::InvalidParams("Invalid height: not an integer".to_string())
-            })? as u32,
-        };
+        // Pinhole model should not have extra parameters
+        if !extra_params.is_empty() {
+            return Err(CameraModelError::InvalidParams(format!(
+                "Pinhole model expects exactly 4 intrinsic parameters, but got {}",
+                4 + extra_params.len()
+            )));
+        }
 
         let model = PinholeModel {
             intrinsics,
@@ -343,46 +318,16 @@ impl CameraModel for PinholeModel {
     /// # Related
     /// * [`PinholeModel::load_from_yaml()`]
     fn save_to_yaml(&self, path: &str) -> Result<(), CameraModelError> {
-        // Create the YAML structure using serde_yaml
-        let yaml = serde_yaml::to_value(serde_yaml::Mapping::from_iter([(
-            serde_yaml::Value::String("cam0".to_string()),
-            serde_yaml::to_value(serde_yaml::Mapping::from_iter([
-                (
-                    serde_yaml::Value::String("camera_model".to_string()),
-                    serde_yaml::Value::String("pinhole".to_string()),
-                ),
-                (
-                    serde_yaml::Value::String("intrinsics".to_string()),
-                    serde_yaml::to_value(vec![
-                        self.intrinsics.fx,
-                        self.intrinsics.fy,
-                        self.intrinsics.cx,
-                        self.intrinsics.cy,
-                    ])
-                    .map_err(|e| CameraModelError::YamlError(e.to_string()))?,
-                ),
-                (
-                    serde_yaml::Value::String("resolution".to_string()),
-                    serde_yaml::to_value(vec![self.resolution.width, self.resolution.height])
-                        .map_err(|e| CameraModelError::YamlError(e.to_string()))?,
-                ),
-            ]))
-            .map_err(|e| CameraModelError::YamlError(e.to_string()))?,
-        )]))
-        .map_err(|e| CameraModelError::YamlError(e.to_string()))?;
+        use crate::camera::yaml_io;
 
-        // Convert to string
-        let yaml_string =
-            serde_yaml::to_string(&yaml).map_err(|e| CameraModelError::YamlError(e.to_string()))?;
-
-        // Write to file
-        let mut file =
-            fs::File::create(path).map_err(|e| CameraModelError::IOError(e.to_string()))?;
-
-        file.write_all(yaml_string.as_bytes())
-            .map_err(|e| CameraModelError::IOError(e.to_string()))?;
-
-        Ok(())
+        // Use helper function to save YAML (pinhole has no extra parameters beyond fx, fy, cx, cy)
+        yaml_io::save_yaml_camera(
+            path,
+            "pinhole",
+            &self.intrinsics,
+            &self.resolution,
+            &[], // No extra distortion parameters for pinhole model
+        )
     }
 
     /// Validates the intrinsic parameters of the camera model.

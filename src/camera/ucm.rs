@@ -14,8 +14,7 @@ use crate::camera::{validation, CameraModel, CameraModelError, Intrinsics, Resol
 use log::info;
 use nalgebra::{DVector, Vector2, Vector3};
 use serde::{Deserialize, Serialize};
-use std::{fmt, fs, io::Write};
-use yaml_rust::YamlLoader;
+use std::fmt;
 
 /// Implements the Unified Camera Model (UCM) for wide-angle/fisheye lenses.
 ///
@@ -392,70 +391,20 @@ impl CameraModel for UcmModel {
     /// * [`CameraModelError::InvalidParams`]: If the YAML structure is missing expected fields
     ///   or if parameter values are of incorrect types or counts.
     fn load_from_yaml(path: &str) -> Result<Self, CameraModelError> {
-        let contents = fs::read_to_string(path)?;
-        let docs = YamlLoader::load_from_str(&contents)?;
+        use crate::camera::yaml_io;
 
-        if docs.is_empty() {
-            return Err(CameraModelError::InvalidParams(
-                "Empty YAML document".to_string(),
-            ));
+        // Use helper function to parse YAML (UCM has 5 params: fx, fy, cx, cy, alpha)
+        let (intrinsics, resolution, extra_params) = yaml_io::parse_yaml_camera(path, 5)?;
+
+        // Extract alpha from extra_params
+        if extra_params.len() != 1 {
+            return Err(CameraModelError::InvalidParams(format!(
+                "UCM model expects exactly 5 parameters (fx, fy, cx, cy, alpha), got {}",
+                4 + extra_params.len()
+            )));
         }
 
-        let doc = &docs[0];
-
-        let intrinsics_yaml_vec = doc["cam0"]["intrinsics"].as_vec().ok_or_else(|| {
-            CameraModelError::InvalidParams(
-                "YAML missing 'intrinsics' array under 'cam0'".to_string(),
-            )
-        })?;
-        let resolution_yaml_vec = doc["cam0"]["resolution"].as_vec().ok_or_else(|| {
-            CameraModelError::InvalidParams(
-                "YAML missing 'resolution' array under 'cam0'".to_string(),
-            )
-        })?;
-
-        if intrinsics_yaml_vec.len() < 5 {
-            return Err(CameraModelError::InvalidParams(
-                "Intrinsics array in YAML must have at least 5 elements (fx, fy, cx, cy, alpha)"
-                    .to_string(),
-            ));
-        }
-
-        let alpha = intrinsics_yaml_vec[4].as_f64().ok_or_else(|| {
-            CameraModelError::InvalidParams("Invalid alpha in YAML: not a float".to_string())
-        })?;
-
-        let intrinsics = Intrinsics {
-            fx: intrinsics_yaml_vec[0].as_f64().ok_or_else(|| {
-                CameraModelError::InvalidParams("Invalid fx in YAML: not a float".to_string())
-            })?,
-            fy: intrinsics_yaml_vec[1].as_f64().ok_or_else(|| {
-                CameraModelError::InvalidParams("Invalid fy in YAML: not a float".to_string())
-            })?,
-            cx: intrinsics_yaml_vec[2].as_f64().ok_or_else(|| {
-                CameraModelError::InvalidParams("Invalid cx in YAML: not a float".to_string())
-            })?,
-            cy: intrinsics_yaml_vec[3].as_f64().ok_or_else(|| {
-                CameraModelError::InvalidParams("Invalid cy in YAML: not a float".to_string())
-            })?,
-        };
-
-        if resolution_yaml_vec.len() < 2 {
-            return Err(CameraModelError::InvalidParams(
-                "Resolution array in YAML must have at least 2 elements (width, height)"
-                    .to_string(),
-            ));
-        }
-        let resolution = Resolution {
-            width: resolution_yaml_vec[0].as_i64().ok_or_else(|| {
-                CameraModelError::InvalidParams("Invalid width in YAML: not an integer".to_string())
-            })? as u32,
-            height: resolution_yaml_vec[1].as_i64().ok_or_else(|| {
-                CameraModelError::InvalidParams(
-                    "Invalid height in YAML: not an integer".to_string(),
-                )
-            })? as u32,
-        };
+        let alpha = extra_params[0];
 
         let model = UcmModel {
             intrinsics,
@@ -487,51 +436,16 @@ impl CameraModel for UcmModel {
     /// * [`CameraModelError::YamlError`]: If there's an issue serializing the data to YAML format.
     /// * [`CameraModelError::IOError`]: If there's an issue creating or writing to the file.
     fn save_to_yaml(&self, path: &str) -> Result<(), CameraModelError> {
-        // Create the YAML structure using serde_yaml
-        let yaml = serde_yaml::to_value(serde_yaml::Mapping::from_iter([(
-            serde_yaml::Value::String("cam0".to_string()),
-            serde_yaml::to_value(serde_yaml::Mapping::from_iter([
-                (
-                    serde_yaml::Value::String("camera_model".to_string()),
-                    serde_yaml::Value::String("ucm".to_string()),
-                ),
-                (
-                    serde_yaml::Value::String("intrinsics".to_string()),
-                    serde_yaml::to_value(vec![
-                        self.intrinsics.fx,
-                        self.intrinsics.fy,
-                        self.intrinsics.cx,
-                        self.intrinsics.cy,
-                        self.alpha,
-                    ])
-                    .map_err(|e| CameraModelError::YamlError(e.to_string()))?,
-                ),
-                (
-                    serde_yaml::Value::String("rostopic".to_string()),
-                    serde_yaml::Value::String("/cam0/image_raw".to_string()),
-                ),
-                (
-                    serde_yaml::Value::String("resolution".to_string()),
-                    serde_yaml::to_value(vec![self.resolution.width, self.resolution.height])
-                        .map_err(|e| CameraModelError::YamlError(e.to_string()))?,
-                ),
-            ]))
-            .map_err(|e| CameraModelError::YamlError(e.to_string()))?,
-        )]))
-        .map_err(|e| CameraModelError::YamlError(e.to_string()))?;
+        use crate::camera::yaml_io;
 
-        // Convert to string
-        let yaml_string =
-            serde_yaml::to_string(&yaml).map_err(|e| CameraModelError::YamlError(e.to_string()))?;
-
-        // Write to file
-        let mut file =
-            fs::File::create(path).map_err(|e| CameraModelError::IOError(e.to_string()))?;
-
-        file.write_all(yaml_string.as_bytes())
-            .map_err(|e| CameraModelError::IOError(e.to_string()))?;
-
-        Ok(())
+        // Use helper function to save YAML (alpha as extra parameter)
+        yaml_io::save_yaml_camera(
+            path,
+            "ucm",
+            &self.intrinsics,
+            &self.resolution,
+            &[self.alpha],
+        )
     }
 
     /// Validates the parameters of the [`UcmModel`].

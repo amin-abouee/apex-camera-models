@@ -9,7 +9,7 @@ mod image_quality;
 mod point_sampling;
 mod reporting;
 mod validation;
-
+mod undistort;
 // Re-export all public items from sub-modules
 pub use error_metrics::{compute_reprojection_error, ProjectionError};
 pub use image_quality::{
@@ -24,7 +24,7 @@ pub use reporting::{
     export_conversion_results, ConversionMetrics,
 };
 pub use validation::{validate_conversion_accuracy, RegionValidation, ValidationResults};
-
+pub use undistort::{undistort_image, InterpolationMethod};
 /// Ensure the output directory exists
 pub fn ensure_output_dir() -> Result<(), UtilError> {
     let output_dir = Path::new("output");

@@ -71,3 +71,7 @@ debug = true
 [profile.test]
 # Optimize tests for better performance
 opt-level = 2
+
+[[bin]]
+name = "image_undistort"
+path = "bin/image_undistort.rs"

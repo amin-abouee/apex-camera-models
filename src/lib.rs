@@ -8,6 +8,7 @@
 //! - Extended Unified Camera Model (EUCM)
 //! - Double Sphere camera model
 //! - Kannala-Brandt camera model
+//! - Field-of-View (FOV) camera model
 //!
 //! The library provides camera models for projection and unprojection operations.
 //! For optimization and calibration factors, see the apex-solver crate which now
@@ -18,8 +19,8 @@ pub mod util;
 
 // Re-export commonly used types
 pub use camera::{
-    CameraModel, CameraModelError, DoubleSphereModel, EucmModel, Intrinsics, KannalaBrandtModel,
-    PinholeModel, RadTanModel, Resolution, UcmModel,
+    CameraModel, CameraModelError, DoubleSphereModel, EucmModel, FovModel, Intrinsics,
+    KannalaBrandtModel, PinholeModel, RadTanModel, Resolution, UcmModel,
 };
 
 // Note: Camera projection factors have been moved to apex-solver crate

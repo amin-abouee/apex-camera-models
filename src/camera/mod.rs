@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 // Camera model modules
 pub mod double_sphere;
 pub mod eucm;
+pub mod fov;
 pub mod kannala_brandt;
 pub mod pinhole;
 pub mod rad_tan;
@@ -27,6 +28,7 @@ pub mod ucm;
 // Re-export camera models
 pub use double_sphere::DoubleSphereModel;
 pub use eucm::EucmModel;
+pub use fov::FovModel;
 pub use kannala_brandt::KannalaBrandtModel;
 pub use pinhole::PinholeModel;
 pub use rad_tan::RadTanModel;
@@ -36,6 +38,7 @@ pub use ucm::UcmModel;
 pub enum CameraModelEnum {
     DoubleSphere(DoubleSphereModel),
     Eucm(EucmModel),
+    Fov(FovModel),
     KannalaBrandt(KannalaBrandtModel),
     Pinhole(PinholeModel),
     RadTan(RadTanModel),
@@ -592,6 +595,11 @@ mod tests {
         let eucm_params = DVector::from_vec(vec![350.0, 350.0, 320.0, 240.0, 1.0, 0.5]);
         let eucm_model = eucm::EucmModel::new(&eucm_params).unwrap();
         assert_eq!(eucm_model.get_model_name(), "eucm");
+
+        // Test FOV model name
+        let fov_params = DVector::from_vec(vec![379.045, 379.008, 505.512, 509.969, 0.9259487501905697]);
+        let fov_model = fov::FovModel::new(&fov_params).unwrap();
+        assert_eq!(fov_model.get_model_name(), "fov");
 
         // Test Kannala-Brandt model name
         let kb_params =

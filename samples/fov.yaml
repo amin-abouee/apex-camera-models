@@ -1,0 +1,12 @@
+cam0:
+  camera_model: fov
+  intrinsics:
+    [
+      379.045,
+      379.008,
+      505.512,
+      509.969,
+      0.9259487501905697,
+    ]
+  rostopic: /cam0/image_raw
+  resolution: [752, 480]

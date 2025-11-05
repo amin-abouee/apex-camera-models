@@ -9,11 +9,11 @@
 //! - Double Sphere camera model
 //! - Kannala-Brandt camera model
 //!
-//! The library also includes optimization routines for camera calibration using
-//! the tiny-solver optimization framework.
+//! The library provides camera models for projection and unprojection operations.
+//! For optimization and calibration factors, see the apex-solver crate which now
+//! contains all projection factors for camera calibration.
 
 pub mod camera;
-pub mod factors;
 pub mod util;
 
 // Re-export commonly used types
@@ -22,12 +22,5 @@ pub use camera::{
     PinholeModel, RadTanModel, Resolution, UcmModel,
 };
 
-// pub use optimization::{
-//     DoubleSphereOptimizationCost, EucmOptimizationCost, KannalaBrandtOptimizationCost, Optimizer,
-//     RadTanOptimizationCost, UcmOptimizationCost,
-// };
-
-pub use factors::{
-    DoubleSphereProjectionFactor, EucmProjectionFactor, KannalaBrandtProjectionFactor,
-    RadTanProjectionFactor, UcmProjectionFactor,
-};
+// Note: Camera projection factors have been moved to apex-solver crate
+// Use apex_solver::factors::{DoubleSphereProjectionFactor, EucmProjectionFactor, ...}

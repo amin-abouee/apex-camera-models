@@ -25,7 +25,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 # Core dependencies
 nalgebra = "0.33.2"
-apex-solver = "0.1.4"
+apex-solver = "0.1.5"
 thiserror = "2.0.12"
 
 # Serialization
@@ -59,8 +59,8 @@ path = "bin/camera_converter.rs"
 [profile.release]
 # Optimize for performance
 opt-level = 3
-lto = true
-codegen-units = 1
+lto = false          # Disabled for faster builds (was: true)
+codegen-units = 16   # Parallel compilation (was: 1)
 panic = "abort"
 
 [profile.dev]

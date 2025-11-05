@@ -44,12 +44,12 @@ use apex_camera_models::camera::{
     CameraModel, CameraModelEnum, DoubleSphereModel, EucmModel, KannalaBrandtModel, PinholeModel,
     RadTanModel, UcmModel,
 };
-use apex_camera_models::factors::{
+use apex_camera_models::util::{self, ConversionMetrics, ValidationResults};
+use apex_solver::core::problem::{Problem, VariableEnum};
+use apex_solver::factors::{
     DoubleSphereProjectionFactor, EucmProjectionFactor, KannalaBrandtProjectionFactor,
     RadTanProjectionFactor, UcmProjectionFactor,
 };
-use apex_camera_models::util::{self, ConversionMetrics, ValidationResults};
-use apex_solver::core::problem::{Problem, VariableEnum};
 use apex_solver::manifold::ManifoldType;
 use apex_solver::optimizer::levenberg_marquardt::{LevenbergMarquardt, LevenbergMarquardtConfig};
 use clap::Parser;

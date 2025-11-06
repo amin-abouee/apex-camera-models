@@ -3,7 +3,7 @@
 //! This binary demonstrates camera model parameter estimation using apex-solver's
 //! Levenberg-Marquardt optimizer with hand-derived analytical Jacobians.
 //!
-//! **Optimizer:** apex-solver v0.1.4 (Analytical Jacobians - hand-derived)
+//! **Optimizer:** apex-solver v0.1.5 (Analytical Jacobians - hand-derived)
 //!
 //! **Supported input models:**
 //! - Kannala-Brandt (KB)
@@ -11,6 +11,7 @@
 //! - Radial-Tangential (RadTan)
 //! - Unified Camera Model (UCM)
 //! - Extended Unified Camera Model (EUCM)
+//! - Field of View (FoV)
 //! - Pinhole
 //!
 //! **Supported output models (apex-solver):**
@@ -19,6 +20,7 @@
 //! - Radial-Tangential (RadTan) - ✅ Full analytical Jacobian support
 //! - Extended Unified Camera Model (EUCM) - ✅ Full analytical Jacobian support
 //! - Unified Camera Model (UCM) - ✅ Full analytical Jacobian support
+//! - Field of View (FoV) - ✅ Full analytical Jacobian support
 //!
 //! **Usage:**
 //! ```bash
@@ -41,14 +43,14 @@
 //! ```
 
 use apex_camera_models::camera::{
-    CameraModel, CameraModelEnum, DoubleSphereModel, EucmModel, KannalaBrandtModel, PinholeModel,
-    RadTanModel, UcmModel,
+    CameraModel, CameraModelEnum, DoubleSphereModel, EucmModel, FovModel, KannalaBrandtModel,
+    PinholeModel, RadTanModel, UcmModel,
 };
 use apex_camera_models::util::{self, ConversionMetrics, ValidationResults};
 use apex_solver::core::problem::{Problem, VariableEnum};
 use apex_solver::factors::{
-    DoubleSphereProjectionFactor, EucmProjectionFactor, KannalaBrandtProjectionFactor,
-    RadTanProjectionFactor, UcmProjectionFactor,
+    DoubleSphereCameraParamsFactor, EucmCameraParamsFactor, FovCameraParamsFactor,
+    KannalaBrandtCameraParamsFactor, RadTanCameraParamsFactor, UcmCameraParamsFactor,
 };
 use apex_solver::manifold::ManifoldType;
 use apex_solver::optimizer::levenberg_marquardt::{LevenbergMarquardt, LevenbergMarquardtConfig};
@@ -107,12 +109,16 @@ fn load_input_model(
             info!("Loading Extended Unified Camera Model from: {path}");
             Box::new(EucmModel::load_from_yaml(path)?)
         }
+        "fov" | "field_of_view" => {
+            info!("Loading FOV model from: {path}");
+            Box::new(FovModel::load_from_yaml(path)?)
+        }
         "pinhole" => {
             info!("Loading Pinhole model from: {path}");
             Box::new(PinholeModel::load_from_yaml(path)?)
         }
         _ => {
-            return Err(format!("Unsupported input model type: {model_type}. Supported types: kb, ds, radtan, ucm, eucm, pinhole").into());
+            return Err(format!("Unsupported input model type: {model_type}. Supported types: kb, ds, radtan, ucm, eucm, pinhole, fov").into());
         }
     };
     Ok(model)
@@ -127,7 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Display tool header - APEX-SOLVER VERSION
     println!("🎯 CAMERA MODEL CONVERTER - APEX-SOLVER");
     println!("=========================================");
-    println!("Optimizer: apex-solver v0.1.4");
+    println!("Optimizer: apex-solver v0.1.5");
     println!("Method: Analytical Jacobians (hand-derived)");
     println!(
         "Input model: {} → Converting to all supported target models",
@@ -212,8 +218,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // Step 3: Run all conversions with apex-solver
-    println!("\n🔄 Step 3: Converting to All Target Models (apex-solver)");
-    println!("==========================================================");
+    println!("\n🔄 Step 3: Converting to All Target Models");
+    println!("============================================");
     let mut all_metrics = Vec::new();
 
     // Convert to Double Sphere (if not the input model)
@@ -222,7 +228,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "ds" | "double_sphere"
     ) {
         println!(
-            "\n📐 Converting {} → Double Sphere [apex-solver]",
+            "\n📐 Converting {} → Double Sphere",
             cli.input_model.to_lowercase(),
         );
         println!("{}", "-".repeat(48 + cli.input_model.len()));
@@ -242,7 +248,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "kb" | "kannala_brandt"
     ) {
         println!(
-            "\n📐 Converting {} → Kannala-Brandt [apex-solver]",
+            "\n📐 Converting {} → Kannala-Brandt",
             cli.input_model.to_lowercase(),
         );
         println!("{}", "-".repeat(48 + cli.input_model.len()));
@@ -262,7 +268,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "radtan" | "rad_tan"
     ) {
         println!(
-            "\n📐 Converting {} → Radial-Tangential [apex-solver]",
+            "\n📐 Converting {} → Radial-Tangential",
             cli.input_model.to_lowercase(),
         );
         println!("{}", "-".repeat(53 + cli.input_model.len()));
@@ -279,7 +285,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Convert to UCM (if not the input model)
     if !matches!(cli.input_model.to_lowercase().as_str(), "ucm" | "unified") {
         println!(
-            "\n📐 Converting {} → Unified Camera Model [apex-solver]",
+            "\n📐 Converting {} → Unified Camera Model (UCM)",
             cli.input_model.to_lowercase(),
         );
         println!("{}", "-".repeat(65 + cli.input_model.len()));
@@ -299,11 +305,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "eucm" | "extended_unified"
     ) {
         println!(
-            "\n📐 Converting {} → Extended Unified Camera Model [apex-solver]",
+            "\n📐 Converting {} → Extended Unified Camera Model (EUCM)",
             cli.input_model.to_lowercase(),
         );
         println!("{}", "-".repeat(65 + cli.input_model.len()));
         if let Ok(metrics) = convert_to_eucm(
+            &*input_model,
+            &points_3d,
+            &points_2d,
+            reference_image.as_ref(),
+        ) {
+            all_metrics.push(metrics);
+        }
+    }
+
+    // Convert to FOV (if not the input model)
+    if !matches!(
+        cli.input_model.to_lowercase().as_str(),
+        "fov" | "field_of_view"
+    ) {
+        println!(
+            "\n📐 Converting {} → Field-of-View (FOV)",
+            cli.input_model.to_lowercase(),
+        );
+        println!("{}", "-".repeat(49 + cli.input_model.len()));
+        if let Ok(metrics) = convert_to_fov(
             &*input_model,
             &points_3d,
             &points_2d,
@@ -323,7 +349,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// ========== CONVERSION FUNCTIONS USING APEX-SOLVER ==========
+// ========== CONVERSION FUNCTIONS USING APEX-SOLVER Optimizer ==========
 
 /// Convert to Double Sphere using apex-solver with analytical Jacobians
 fn convert_to_double_sphere(
@@ -348,8 +374,8 @@ fn convert_to_double_sphere(
     // Linear estimation
     model.linear_estimation(points_3d, points_2d)?;
 
-    // Create projection factor
-    let factor = DoubleSphereProjectionFactor::new(points_3d.clone(), points_2d.clone());
+    // Create camera params factor
+    let factor = DoubleSphereCameraParamsFactor::new(points_3d.clone(), points_2d.clone());
 
     // Set up apex-solver problem
     let mut problem = Problem::new();
@@ -415,7 +441,7 @@ fn convert_to_double_sphere(
             model.alpha = optimized_params[4];
             model.xi = optimized_params[5];
 
-            "Converged (apex-solver)".to_string()
+            "Converged".to_string()
         }
         Err(_) => "Linear Only".to_string(),
     };
@@ -448,7 +474,7 @@ fn convert_to_double_sphere(
 
     let metrics = ConversionMetrics {
         model: CameraModelEnum::DoubleSphere(model),
-        model_name: "Double Sphere (apex-solver)".to_string(),
+        model_name: "Double Sphere".to_string(),
         final_reprojection_error: reprojection_result,
         initial_reprojection_error: initial_error,
         optimization_time_ms: optimization_time,
@@ -483,8 +509,8 @@ fn convert_to_kannala_brandt(
     // Linear estimation
     model.linear_estimation(points_3d, points_2d)?;
 
-    // Create projection factor
-    let factor = KannalaBrandtProjectionFactor::new(points_3d.clone(), points_2d.clone());
+    // Create camera params factor
+    let factor = KannalaBrandtCameraParamsFactor::new(points_3d.clone(), points_2d.clone());
 
     // Set up apex-solver problem
     let mut problem = Problem::new();
@@ -554,7 +580,7 @@ fn convert_to_kannala_brandt(
             model.distortions[2] = optimized_params[6];
             model.distortions[3] = optimized_params[7];
 
-            "Converged (apex-solver)".to_string()
+            "Converged".to_string()
         }
         Err(_) => "Linear Only".to_string(),
     };
@@ -587,7 +613,7 @@ fn convert_to_kannala_brandt(
 
     let metrics = ConversionMetrics {
         model: CameraModelEnum::KannalaBrandt(model),
-        model_name: "Kannala-Brandt (apex-solver)".to_string(),
+        model_name: "Kannala-Brandt".to_string(),
         final_reprojection_error: reprojection_result,
         initial_reprojection_error: initial_error,
         optimization_time_ms: optimization_time,
@@ -622,8 +648,8 @@ fn convert_to_rad_tan(
     // Linear estimation
     model.linear_estimation(points_3d, points_2d)?;
 
-    // Create projection factor
-    let factor = RadTanProjectionFactor::new(points_3d.clone(), points_2d.clone());
+    // Create camera params factor
+    let factor = RadTanCameraParamsFactor::new(points_3d.clone(), points_2d.clone());
 
     // Set up apex-solver problem
     let mut problem = Problem::new();
@@ -696,7 +722,7 @@ fn convert_to_rad_tan(
             model.distortions[3] = optimized_params[7];
             model.distortions[4] = optimized_params[8];
 
-            "Converged (apex-solver)".to_string()
+            "Converged".to_string()
         }
         Err(_) => "Linear Only".to_string(),
     };
@@ -729,7 +755,7 @@ fn convert_to_rad_tan(
 
     let metrics = ConversionMetrics {
         model: CameraModelEnum::RadTan(model),
-        model_name: "Radial-Tangential (apex-solver)".to_string(),
+        model_name: "Radial-Tangential".to_string(),
         final_reprojection_error: reprojection_result,
         initial_reprojection_error: initial_error,
         optimization_time_ms: optimization_time,
@@ -764,8 +790,8 @@ fn convert_to_ucm(
     // Linear estimation
     model.linear_estimation(points_3d, points_2d)?;
 
-    // Create projection factor
-    let factor = UcmProjectionFactor::new(points_3d.clone(), points_2d.clone());
+    // Create camera params factor
+    let factor = UcmCameraParamsFactor::new(points_3d.clone(), points_2d.clone());
 
     // Set up apex-solver problem
     let mut problem = Problem::new();
@@ -826,7 +852,7 @@ fn convert_to_ucm(
             model.intrinsics.cy = optimized_params[3];
             model.alpha = optimized_params[4];
 
-            "Converged (apex-solver)".to_string()
+            "Converged".to_string()
         }
         Err(_) => "Linear Only".to_string(),
     };
@@ -859,7 +885,7 @@ fn convert_to_ucm(
 
     let metrics = ConversionMetrics {
         model: CameraModelEnum::Ucm(model),
-        model_name: "Unified Camera Model (apex-solver)".to_string(),
+        model_name: "Unified Camera Model".to_string(),
         final_reprojection_error: reprojection_result,
         initial_reprojection_error: initial_error,
         optimization_time_ms: optimization_time,
@@ -895,8 +921,8 @@ fn convert_to_eucm(
     // Linear estimation
     model.linear_estimation(points_3d, points_2d)?;
 
-    // Create projection factor
-    let factor = EucmProjectionFactor::new(points_3d.clone(), points_2d.clone());
+    // Create camera params factor
+    let factor = EucmCameraParamsFactor::new(points_3d.clone(), points_2d.clone());
 
     // Set up apex-solver problem
     let mut problem = Problem::new();
@@ -960,7 +986,7 @@ fn convert_to_eucm(
             model.alpha = optimized_params[4];
             model.beta = optimized_params[5];
 
-            "Converged (apex-solver)".to_string()
+            "Converged".to_string()
         }
         Err(_) => "Linear Only".to_string(),
     };
@@ -993,7 +1019,137 @@ fn convert_to_eucm(
 
     let metrics = ConversionMetrics {
         model: CameraModelEnum::Eucm(model),
-        model_name: "Extended Unified Camera Model (apex-solver)".to_string(),
+        model_name: "Extended Unified Camera Model".to_string(),
+        final_reprojection_error: reprojection_result,
+        initial_reprojection_error: initial_error,
+        optimization_time_ms: optimization_time,
+        convergence_status,
+        validation_results,
+        image_quality,
+    };
+
+    util::display_detailed_results(&metrics);
+    Ok(metrics)
+}
+
+/// Convert to FOV using apex-solver with analytical Jacobians
+fn convert_to_fov(
+    input_model: &dyn CameraModel,
+    points_3d: &nalgebra::Matrix3xX<f64>,
+    points_2d: &nalgebra::Matrix2xX<f64>,
+    reference_image: Option<&image::RgbImage>,
+) -> Result<ConversionMetrics, Box<dyn std::error::Error>> {
+    let start_time = Instant::now();
+
+    // Initialize FOV model
+    let mut model = FovModel {
+        intrinsics: input_model.get_intrinsics(),
+        resolution: input_model.get_resolution(),
+        w: 1.0, // Initial guess
+    };
+
+    // Compute initial reprojection error
+    let initial_error = util::compute_reprojection_error(Some(&model), points_3d, points_2d)?;
+
+    // Linear estimation
+    model.linear_estimation(points_3d, points_2d)?;
+
+    // Create camera params factor
+    let factor = FovCameraParamsFactor::new(points_3d.clone(), points_2d.clone());
+
+    // Set up apex-solver problem
+    let mut problem = Problem::new();
+    problem.add_residual_block(&["params"], Box::new(factor), None);
+
+    // Set initial parameter values
+    let initial_params = DVector::from_vec(vec![
+        model.intrinsics.fx,
+        model.intrinsics.fy,
+        model.intrinsics.cx,
+        model.intrinsics.cy,
+        model.w,
+    ]);
+
+    // Set parameter bounds
+    problem.set_variable_bounds("params", 0, 1.0, 2000.0); // fx
+    problem.set_variable_bounds("params", 1, 1.0, 2000.0); // fy
+    problem.set_variable_bounds("params", 2, 0.0, 2000.0); // cx
+    problem.set_variable_bounds("params", 3, 0.0, 2000.0); // cy
+    problem.set_variable_bounds("params", 4, 1e-6, 3.0); // w
+
+    // Set up initial values with RN manifold (Euclidean space)
+    let mut initial_values = HashMap::new();
+    initial_values.insert("params".to_string(), (ManifoldType::RN, initial_params));
+
+    // NON-LINEAR OPTIMIZATION WITH APEX-SOLVER (ANALYTICAL JACOBIANS)
+    info!("🚀 Running apex-solver optimization for FOV...");
+
+    // Configure and run optimizer
+    let config = LevenbergMarquardtConfig::new()
+        .with_max_iterations(100)
+        .with_cost_tolerance(1e-6)
+        .with_parameter_tolerance(1e-8)
+        .with_gradient_tolerance(1e-6)
+        .with_verbose(false);
+
+    let mut solver = LevenbergMarquardt::with_config(config);
+    let optimization_result = solver.optimize(&problem, &initial_values);
+
+    let optimization_time = start_time.elapsed().as_millis() as f64;
+
+    // Extract optimized parameters
+    let convergence_status = match &optimization_result {
+        Ok(result) => {
+            let optimized_var = result
+                .parameters
+                .get("params")
+                .ok_or("Variable not found")?;
+            let optimized_params = match optimized_var {
+                VariableEnum::Rn(rn_var) => rn_var.value.to_vector(),
+                _ => return Err("Unexpected variable type".into()),
+            };
+
+            // Update model with optimized parameters
+            model.intrinsics.fx = optimized_params[0];
+            model.intrinsics.fy = optimized_params[1];
+            model.intrinsics.cx = optimized_params[2];
+            model.intrinsics.cy = optimized_params[3];
+            model.w = optimized_params[4];
+
+            "Converged".to_string()
+        }
+        Err(_) => "Linear Only".to_string(),
+    };
+
+    let reprojection_result = util::compute_reprojection_error(Some(&model), points_3d, points_2d)?;
+
+    let validation_results = util::validate_conversion_accuracy(&model, input_model)
+        .unwrap_or_else(|_| ValidationResults {
+            center_error: f64::NAN,
+            near_center_error: f64::NAN,
+            mid_region_error: f64::NAN,
+            edge_region_error: f64::NAN,
+            far_edge_error: f64::NAN,
+            average_error: f64::NAN,
+            max_error: f64::NAN,
+            status: "NEEDS IMPROVEMENT".to_string(),
+            region_data: vec![],
+        });
+
+    // Compute image quality metrics
+    let image_quality = util::compute_image_quality_metrics(
+        input_model,
+        &model,
+        points_3d,
+        "fov_apex",
+        reference_image,
+    )
+    .map_err(|e| info!("Failed to compute image quality metrics: {e:?}"))
+    .ok();
+
+    let metrics = ConversionMetrics {
+        model: CameraModelEnum::Fov(model),
+        model_name: "Field-of-View".to_string(),
         final_reprojection_error: reprojection_result,
         initial_reprojection_error: initial_error,
         optimization_time_ms: optimization_time,
